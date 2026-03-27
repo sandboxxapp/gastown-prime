@@ -234,9 +234,18 @@ func HandlePolecatDoneFromBead(bd *BdCli, workDir, rigName, polecatName string, 
 	}
 
 	if hasPendingMR {
-		return handlePolecatDonePendingMR(bd, workDir, rigName, payload, result)
+		result = handlePolecatDonePendingMR(bd, workDir, rigName, payload, result)
+	} else {
+		result = handlePolecatDoneNoMR(workDir, rigName, payload, result)
 	}
-	return handlePolecatDoneNoMR(workDir, rigName, payload, result)
+
+	// Notify Mayor that a slot is open regardless of MR status.
+	// Mirror HandlePolecatDone behavior — polecat is idle, Mayor should sling next bead. (GH#2727)
+	if result.Handled {
+		notifyMayorSlotOpen(workDir, rigName, polecatName, payload.Exit)
+	}
+
+	return result
 }
 
 // TransitionPolecatToIdle sets a polecat's agent_state to idle after the witness
