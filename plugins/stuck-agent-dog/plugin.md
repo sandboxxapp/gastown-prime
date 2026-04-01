@@ -61,6 +61,11 @@ echo "=== Stuck Agent Dog: Checking agent health ==="
 TOWN_ROOT="$HOME/gt"
 RIGS_JSON_PATH="${TOWN_ROOT}/mayor/rigs.json"
 
+# Fallback for older/runtime-copied layouts that still expose rigs.json at town root.
+if [ ! -f "$RIGS_JSON_PATH" ] && [ -f "$TOWN_ROOT/rigs.json" ]; then
+  RIGS_JSON_PATH="$TOWN_ROOT/rigs.json"
+fi
+
 # Read rigs.json for rig names and beads prefixes
 # CRITICAL: We need both the rig name (for filesystem paths like $TOWN_ROOT/$RIG/polecats/)
 # and the beads prefix (for tmux session names like $PREFIX-polecat-$NAME).
@@ -70,15 +75,16 @@ if [ ! -f "$RIGS_JSON_PATH" ]; then
   exit 0
 fi
 
-RIGS_FILE=$(cat "$RIGS_JSON_PATH" 2>/dev/null)
-if [ -z "$RIGS_FILE" ]; then
-  echo "SKIP: could not read rigs.json"
+if ! RIG_PREFIX_MAP=$(jq -r '
+  if (.rigs | type) == "object" then
+    .rigs | to_entries[] | "\(.key)|\(.value.beads.prefix // .key)"
+  else
+    empty
+  end
+' "$RIGS_JSON_PATH" 2>/dev/null); then
+  echo "SKIP: could not parse rigs.json"
   exit 0
 fi
-
-# Build a mapping of rig_name -> beads_prefix for session name construction
-# Each line: rig_name|beads_prefix
-RIG_PREFIX_MAP=$(echo "$RIGS_FILE" | jq -r '.rigs | to_entries[] | "\(.key)|\(.value.beads.prefix // .key)"' 2>/dev/null)
 if [ -z "$RIG_PREFIX_MAP" ]; then
   echo "SKIP: no rigs found in rigs.json"
   exit 0
@@ -177,28 +183,22 @@ if ! tmux has-session -t "$DEACON_SESSION" 2>/dev/null; then
   echo "  CRASHED: Deacon session is dead"
   DEACON_ISSUE="crashed"
 else
-  # Check deacon heartbeat file.
-  # heartbeat.json is the canonical file written by `gt deacon heartbeat` on every
-  # patrol cycle (start + mid-cycle checkpoint). .deacon-heartbeat is also kept in
-  # sync by WriteHeartbeat() for backward compatibility. Prefer heartbeat.json here
-  # as it is always written by the Go implementation.
-  #
-  # Threshold: 1200s (20m). The daemon nudges at 10m and logs STUCK at 15m;
-  # stuck-agent-dog fires at 20m to provide context-aware escalation without
-  # racing with the daemon or false-positiving during normal sleep/idle periods.
-  # Deacon patrol cycles take up to ~15 minutes total with heartbeat writes at
-  # start and mid-cycle, so max gap between writes is ~8 minutes + 60s sleep ≈ 9m.
+  # Check deacon heartbeat file
   HEARTBEAT_FILE="$TOWN_ROOT/deacon/heartbeat.json"
   if [ -f "$HEARTBEAT_FILE" ]; then
-    HEARTBEAT_TIME=$(stat -f %m "$HEARTBEAT_FILE" 2>/dev/null || stat -c %Y "$HEARTBEAT_FILE" 2>/dev/null)
-    NOW=$(date +%s)
-    HEARTBEAT_AGE=$(( NOW - HEARTBEAT_TIME ))
+    HEARTBEAT_TIME=$(jq -r '(.timestamp // empty) | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601? // empty' "$HEARTBEAT_FILE" 2>/dev/null)
+    if [ -n "$HEARTBEAT_TIME" ]; then
+      NOW=$(date +%s)
+      HEARTBEAT_AGE=$(( NOW - HEARTBEAT_TIME ))
 
-    if [ "$HEARTBEAT_AGE" -gt 1200 ]; then
-      echo "  STUCK: Deacon heartbeat stale (${HEARTBEAT_AGE}s old, >20m threshold)"
-      DEACON_ISSUE="stuck_heartbeat_${HEARTBEAT_AGE}s"
+      if [ "$HEARTBEAT_AGE" -gt 900 ]; then
+        echo "  STUCK: Deacon heartbeat stale (${HEARTBEAT_AGE}s old, >15m threshold)"
+        DEACON_ISSUE="stuck_heartbeat_${HEARTBEAT_AGE}s"
+      else
+        echo "  OK: Deacon heartbeat ${HEARTBEAT_AGE}s old"
+      fi
     else
-      echo "  OK: Deacon heartbeat ${HEARTBEAT_AGE}s old"
+      echo "  WARN: Could not parse heartbeat timestamp from $HEARTBEAT_FILE"
     fi
   else
     echo "  WARN: No heartbeat file found at $HEARTBEAT_FILE"
