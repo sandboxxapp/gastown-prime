@@ -60,16 +60,15 @@ var reaperDatabasesCmd = &cobra.Command{
 
 var reaperScanCmd = &cobra.Command{
 	Use:   "scan",
-	Short: "Scan a database for reaper candidates",
-	Long: `Count reap, purge, auto-close, and mail candidates in a database.
+	Short: "Scan databases for reaper candidates",
+	Long: `Count reap, purge, auto-close, and mail candidates in databases.
+
+When --db is provided, scans a single database. When omitted, auto-discovers
+all databases on the Dolt server and scans each one, printing a summary.
 
 Returns counts and anomaly detection results without modifying any data.
 The Dog uses this to understand the state before deciding what to reap.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if reaperDB == "" {
-			return fmt.Errorf("--db is required")
-		}
-
 		maxAge, err := time.ParseDuration(reaperMaxAge)
 		if err != nil {
 			return fmt.Errorf("invalid --max-age: %w", err)
@@ -87,34 +86,69 @@ The Dog uses this to understand the state before deciding what to reap.`,
 			return fmt.Errorf("invalid --stale-age: %w", err)
 		}
 
-		db, err := reaper.OpenDB(reaperHost, reaperPort, reaperDB, 10*time.Second, 10*time.Second)
-		if err != nil {
-			return fmt.Errorf("connect to %s: %w", reaperDB, err)
-		}
-		defer db.Close()
-
-		if ok, err := reaper.HasReaperSchema(db); err != nil {
-			return fmt.Errorf("check reaper schema on %s: %w", reaperDB, err)
-		} else if !ok {
-			return fmt.Errorf("database %s missing wisps/issues tables (beads schema not initialized on this server)", reaperDB)
+		databases := reaper.DiscoverDatabases(reaperHost, reaperPort)
+		if reaperDB != "" {
+			databases = strings.Split(reaperDB, ",")
 		}
 
-		result, err := reaper.Scan(db, reaperDB, maxAge, purgeAge, mailAge, staleAge)
-		if err != nil {
-			return fmt.Errorf("scan %s: %w", reaperDB, err)
+		var results []*reaper.ScanResult
+		for _, dbName := range databases {
+			if err := reaper.ValidateDBName(dbName); err != nil {
+				fmt.Fprintf(os.Stderr, "skip invalid db: %s\n", dbName)
+				continue
+			}
+
+			db, err := reaper.OpenDB(reaperHost, reaperPort, dbName, 10*time.Second, 10*time.Second)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: connect error: %v\n", dbName, err)
+				continue
+			}
+
+			if ok, err := reaper.HasReaperSchema(db); err != nil {
+				fmt.Fprintf(os.Stderr, "%s: schema check error: %v\n", dbName, err)
+				db.Close()
+				continue
+			} else if !ok {
+				db.Close()
+				continue
+			}
+
+			result, err := reaper.Scan(db, dbName, maxAge, purgeAge, mailAge, staleAge)
+			db.Close()
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "%s: scan error: %v\n", dbName, err)
+				continue
+			}
+			results = append(results, result)
 		}
 
 		if reaperJSON {
-			fmt.Println(reaper.FormatJSON(result))
+			fmt.Println(reaper.FormatJSON(results))
 		} else {
-			fmt.Printf("Database: %s\n", result.Database)
-			fmt.Printf("  Reap candidates:  %d\n", result.ReapCandidates)
-			fmt.Printf("  Purge candidates: %d\n", result.PurgeCandidates)
-			fmt.Printf("  Mail candidates:  %d\n", result.MailCandidates)
-			fmt.Printf("  Stale candidates: %d\n", result.StaleCandidates)
-			fmt.Printf("  Open wisps:       %d\n", result.OpenWisps)
-			for _, a := range result.Anomalies {
-				fmt.Printf("  %s %s\n", style.Warning.Render("ANOMALY:"), a.Message)
+			var totalReap, totalPurge, totalMail, totalStale, totalOpen int
+			for _, r := range results {
+				fmt.Printf("Database: %s\n", r.Database)
+				fmt.Printf("  Reap candidates:  %d\n", r.ReapCandidates)
+				fmt.Printf("  Purge candidates: %d\n", r.PurgeCandidates)
+				fmt.Printf("  Mail candidates:  %d\n", r.MailCandidates)
+				fmt.Printf("  Stale candidates: %d\n", r.StaleCandidates)
+				fmt.Printf("  Open wisps:       %d\n", r.OpenWisps)
+				for _, a := range r.Anomalies {
+					fmt.Printf("  %s %s\n", style.Warning.Render("ANOMALY:"), a.Message)
+				}
+				totalReap += r.ReapCandidates
+				totalPurge += r.PurgeCandidates
+				totalMail += r.MailCandidates
+				totalStale += r.StaleCandidates
+				totalOpen += r.OpenWisps
+			}
+			if len(results) > 1 {
+				fmt.Printf("\nScan summary (%d databases):\n", len(results))
+				fmt.Printf("  Reap candidates:  %d\n", totalReap)
+				fmt.Printf("  Purge candidates: %d\n", totalPurge)
+				fmt.Printf("  Mail candidates:  %d\n", totalMail)
+				fmt.Printf("  Stale candidates: %d\n", totalStale)
+				fmt.Printf("  Open wisps:       %d\n", totalOpen)
 			}
 		}
 		return nil
