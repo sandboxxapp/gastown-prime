@@ -85,7 +85,5 @@ __pycache__/
 .dolt/
 *.db
 
-# Town-specific config (private, not committed to public repo)
-mayor/
-directives/
-*/directives/
+# Bridge context lease (auto-generated, do not commit)
+.bridge/
