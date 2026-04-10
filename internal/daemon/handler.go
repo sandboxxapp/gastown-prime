@@ -331,3 +331,15 @@ func (d *Daemon) loadRigsConfig() (*config.RigsConfig, error) {
 func (d *Daemon) loadOperationalConfig() *config.OperationalConfig {
 	return config.LoadOperationalConfig(d.config.TownRoot)
 }
+
+// loadServicesConfig loads the services config from settings/config.json.
+// Called per-heartbeat so changes take effect without a daemon restart.
+// Returns a nil-safe *ServicesConfig — all Is*Enabled() methods default to true on nil.
+func (d *Daemon) loadServicesConfig() *config.ServicesConfig {
+	settingsPath := config.TownSettingsPath(d.config.TownRoot)
+	ts, err := config.LoadOrCreateTownSettings(settingsPath)
+	if err != nil || ts == nil {
+		return nil // nil is safe — Is*Enabled() methods return true for nil receiver
+	}
+	return ts.Services
+}
