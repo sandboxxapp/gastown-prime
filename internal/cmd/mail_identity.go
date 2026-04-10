@@ -35,15 +35,17 @@ func findMailWorkDir() (string, error) {
 	return workspace.FindFromCwdOrError()
 }
 
-// findLocalBeadsDir finds the nearest .beads directory by walking up from CWD.
-// Used for project work (molecules, issue creation) that uses clone beads.
+// findLocalBeadsDir finds the .beads directory for project work (molecules,
+// issue creation, hook attachment).
 //
 // Priority:
 //  1. BEADS_DIR environment variable (set by session manager for polecats)
-//  2. Walk up from CWD looking for .beads directory
+//  2. Town-root .beads/ via workspace.Find (handles nested rig structures)
+//  3. Walk up from CWD looking for .beads directory (non-workspace fallback)
 //
-// Polecats use redirect-based beads access, so their worktree doesn't have a full
-// .beads directory. The session manager sets BEADS_DIR to the correct location.
+// The workspace.Find step is critical: without it, running from a rig directory
+// that has its own .beads/ (e.g., during gt sling) would resolve to the rig's
+// beads instead of the town-root beads, breaking cross-rig bead visibility.
 func findLocalBeadsDir() (string, error) {
 	// Check BEADS_DIR environment variable first (set by session manager for polecats).
 	// This is important for polecats that use redirect-based beads access.
@@ -54,10 +56,23 @@ func findLocalBeadsDir() (string, error) {
 		}
 	}
 
-	// Fallback: walk up from CWD
+	// Try workspace.Find to locate the outermost town root. This correctly
+	// skips rig-level .beads/ directories in nested workspace structures.
 	cwd, err := os.Getwd()
-	if err != nil {
-		return "", err
+	if err == nil {
+		if townRoot, err := workspace.Find(cwd); err == nil && townRoot != "" {
+			if _, err := os.Stat(filepath.Join(townRoot, ".beads")); err == nil {
+				return townRoot, nil
+			}
+		}
+	}
+
+	// Fallback: walk up from CWD (for non-workspace contexts)
+	if cwd == "" {
+		cwd, err = os.Getwd()
+		if err != nil {
+			return "", err
+		}
 	}
 
 	path := cwd
