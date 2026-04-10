@@ -26,11 +26,13 @@ type MCPPolicy struct {
 	Tools []string `json:"tools,omitempty"` // glob patterns, empty = all
 }
 
-// GCPProfile defines a GCP SA impersonation target.
+// GCPProfile defines a GCP token minting target.
 type GCPProfile struct {
-	TargetSA string   `json:"target_sa"`
+	Mode     string   `json:"mode,omitempty"`     // "downscope" or "impersonate" (default)
+	TargetSA string   `json:"target_sa,omitempty"` // Required for impersonate mode
 	Scopes   []string `json:"scopes"`
 	Lifetime string   `json:"lifetime,omitempty"`
+	Project  string   `json:"project,omitempty"`  // GCP project ID for CAB resource scoping
 }
 
 // GCPAuthz defines GCP credential access for a client.

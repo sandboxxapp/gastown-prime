@@ -101,6 +101,67 @@ func injectAuthzProxy(townRoot, worktreeRoot, agentID, beadID string, mcpSpecs, 
 	return nil
 }
 
+// MintGCPToken mints a downscoped or impersonated GCP token and returns
+// environment variables to inject into the polecat's process.
+// Returns nil map if no GCP profiles were requested.
+func MintGCPToken(townRoot string, gcpProfiles []string) (map[string]string, error) {
+	if len(gcpProfiles) == 0 {
+		return nil, nil
+	}
+
+	settingsPath := config.TownSettingsPath(townRoot)
+	settings, err := config.LoadOrCreateTownSettings(settingsPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading town settings: %w", err)
+	}
+
+	proxyCfg := settings.AuthzProxy
+	if proxyCfg == nil {
+		return nil, fmt.Errorf("authz_proxy not configured")
+	}
+
+	profiles, err := authzproxy.ResolveGCPProfiles(proxyCfg.SecretsPath, gcpProfiles)
+	if err != nil {
+		return nil, fmt.Errorf("resolving GCP profiles: %w", err)
+	}
+
+	if len(profiles) == 0 {
+		return nil, nil
+	}
+
+	// Use the first profile
+	var profileName string
+	var profile authzproxy.GCPProfile
+	for k, v := range profiles {
+		profileName = k
+		profile = v
+		break
+	}
+
+	// Mint token (downscope via STS or impersonate via IAM)
+	token, _, err := authzproxy.MintGCPTokenFromProfile(profile)
+	if err != nil {
+		return nil, fmt.Errorf("minting GCP token for profile %s: %w", profileName, err)
+	}
+
+	// Create a sandboxed gcloud config dir
+	tmpDir, err := os.MkdirTemp("", "gt-gcloud-sandbox-")
+	if err != nil {
+		return nil, fmt.Errorf("creating gcloud sandbox dir: %w", err)
+	}
+
+	env := map[string]string{
+		"CLOUDSDK_AUTH_ACCESS_TOKEN":     token,
+		"GOOGLE_APPLICATION_CREDENTIALS": "/dev/null",
+		"CLOUDSDK_CONFIG":                tmpDir,
+	}
+
+	fmt.Printf("  %s GCP token minted (%d chars, profile: %s)\n", style.Bold.Render("✓"), len(token), profileName)
+	fmt.Printf("  %s ADC blocked, gcloud sandboxed to %s\n", style.Dim.Render("→"), tmpDir)
+
+	return env, nil
+}
+
 // addMCPPermissionsToSettings adds MCP tool permission patterns and enables
 // project MCP servers in the polecat's .claude/settings.json.
 func addMCPPermissionsToSettings(worktreeRoot string, mcpNames []string) error {
