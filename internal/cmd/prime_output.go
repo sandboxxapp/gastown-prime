@@ -161,6 +161,61 @@ func outputRoleDirectives(ctx RoleContext, w io.Writer, explainEnabled bool) {
 	fmt.Fprintln(w, content)
 }
 
+// outputDomainDocs loads and emits rig-specific domain documentation.
+// Domain docs live at <townRoot>/<rigName>/domain/ and provide SME-level
+// reference material (data models, API patterns, gotchas) to polecats.
+//
+// w and explainEnabled are injected for testability (same pattern as
+// outputRoleDirectives).
+func outputDomainDocs(ctx RoleContext, w io.Writer, explainEnabled bool) {
+	explainf := func(format string, args ...any) {
+		if explainEnabled {
+			fmt.Fprintf(w, "\n[EXPLAIN] "+format+"\n", args...)
+		}
+	}
+
+	docs := config.LoadDomainDocs(ctx.TownRoot, ctx.Rig)
+	if len(docs) == 0 {
+		explainf("Domain docs: none found for rig %q", ctx.Rig)
+		return
+	}
+
+	explainf("Domain docs: loaded %d files from %s/%s/domain/", len(docs), ctx.TownRoot, ctx.Rig)
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "## Domain Context (SME Reference)")
+	fmt.Fprintln(w)
+
+	currentCategory := ""
+	for _, doc := range docs {
+		if doc.Category != "" && doc.Category != currentCategory {
+			currentCategory = doc.Category
+			fmt.Fprintf(w, "### %s\n\n", config.TitleCaseHyphens(currentCategory))
+		}
+
+		if doc.Category == "" {
+			// Top-level doc gets its own h3
+			fmt.Fprintf(w, "### %s\n\n", doc.Title)
+		} else {
+			// Subdirectory doc gets h4 under its category
+			fmt.Fprintf(w, "#### %s\n\n", doc.Title)
+		}
+		fmt.Fprintln(w, doc.Content)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "---")
+		fmt.Fprintln(w)
+	}
+
+	fmt.Fprintln(w, "If you discover domain knowledge during this task that would help future polecats")
+	fmt.Fprintln(w, "(data model relationships, correct field formats, API patterns, gotchas), write it to")
+	fmt.Fprintln(w, "`.bridge/domain_updates.md` using this format:")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "```markdown")
+	fmt.Fprintln(w, "## <topic> — <file hint>")
+	fmt.Fprintln(w, "<what you learned>")
+	fmt.Fprintln(w, "```")
+}
+
 func outputPrimeContextFallback(ctx RoleContext) {
 	switch ctx.Role {
 	case RoleMayor:
