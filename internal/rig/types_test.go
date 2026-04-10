@@ -1,6 +1,7 @@
 package rig
 
 import (
+	"os"
 	"testing"
 )
 
@@ -142,5 +143,44 @@ func TestDefaultBranch_FallsBackToMain(t *testing.T) {
 	got := rig.DefaultBranch()
 	if got != "main" {
 		t.Errorf("DefaultBranch() = %q, want %q", got, "main")
+	}
+}
+
+func TestDefaultBranch_UsesRegistryFallback(t *testing.T) {
+	t.Parallel()
+
+	// When rig config.json doesn't exist but RegistryDefaultBranch is set,
+	// DefaultBranch should return the registry value instead of "main".
+	r := Rig{
+		Name:                  "backend",
+		Path:                  "/nonexistent/path",
+		RegistryDefaultBranch: "develop",
+	}
+
+	got := r.DefaultBranch()
+	if got != "develop" {
+		t.Errorf("DefaultBranch() = %q, want %q", got, "develop")
+	}
+}
+
+func TestDefaultBranch_RigConfigTakesPrecedence(t *testing.T) {
+	t.Parallel()
+
+	// Create temp dir with config.json that has default_branch
+	tmpDir := t.TempDir()
+	configPath := tmpDir + "/config.json"
+	if err := os.WriteFile(configPath, []byte(`{"type":"rig","version":1,"name":"test","default_branch":"staging"}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Rig{
+		Name:                  "test",
+		Path:                  tmpDir,
+		RegistryDefaultBranch: "develop",
+	}
+
+	got := r.DefaultBranch()
+	if got != "staging" {
+		t.Errorf("DefaultBranch() = %q, want %q (rig config should take precedence over registry)", got, "staging")
 	}
 }

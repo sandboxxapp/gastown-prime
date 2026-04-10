@@ -588,6 +588,27 @@ func TestGetRigGit(t *testing.T) {
 	})
 }
 
+func TestGetRigGit_RigIsRepo(t *testing.T) {
+	// When the rig directory itself is a git repo (has .git),
+	// getRigGit should return a Git object for it.
+	// This handles the case where a rig IS the actual repo
+	// (e.g., gastown-prime), not a bare clone in rigs/.
+	tmp := t.TempDir()
+	// Create a .git directory to simulate a regular repo
+	gitDir := filepath.Join(tmp, ".git")
+	if err := os.Mkdir(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	g, err := getRigGit(tmp)
+	if err != nil {
+		t.Fatalf("expected getRigGit to succeed for rig-is-repo, got: %v", err)
+	}
+	if g == nil {
+		t.Fatal("expected non-nil Git for rig-is-repo")
+	}
+}
+
 func TestGetIntegrationBranchTemplate(t *testing.T) {
 	t.Run("CLI override provided", func(t *testing.T) {
 		tmp := t.TempDir()
