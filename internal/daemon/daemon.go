@@ -756,12 +756,23 @@ func (d *Daemon) heartbeat(state *State) {
 	// This must happen before beads operations that depend on Dolt.
 	d.ensureDoltServerRunning()
 
+	// Load services config fresh each heartbeat so changes to
+	// settings/config.json take effect without a daemon restart.
+	// This gates Claude agent spawning — the heartbeat, Dolt server,
+	// health checks, and lifecycle ops continue regardless.
+	svcCfg := d.loadServicesConfig()
+
 	// 1. Ensure Deacon is running (restart if dead)
 	// Check patrol config - can be disabled in mayor/daemon.json
-	if d.isPatrolActive("deacon") {
+	// Check services config - can be disabled in settings/config.json
+	if d.isPatrolActive("deacon") && svcCfg.IsDeaconEnabled() {
 		d.ensureDeaconRunning()
 	} else {
-		d.logger.Printf("Deacon patrol disabled in config, skipping")
+		if !svcCfg.IsDeaconEnabled() {
+			d.logger.Printf("Deacon disabled in services config, skipping")
+		} else {
+			d.logger.Printf("Deacon patrol disabled in config, skipping")
+		}
 		// Kill leftover deacon/boot sessions from before patrol was disabled.
 		// Without this, a stale deacon keeps running its own patrol loop,
 		// spawning witnesses and refineries despite daemon config. (hq-2mstj)
@@ -770,45 +781,60 @@ func (d *Daemon) heartbeat(state *State) {
 
 	// 2. Poke Boot for intelligent triage (stuck/nudge/interrupt)
 	// Boot handles nuanced "is Deacon responsive" decisions
-	// Only run if Deacon patrol is enabled
-	if d.isPatrolActive("deacon") {
+	// Only run if Deacon patrol is enabled and deacon service is enabled
+	if d.isPatrolActive("deacon") && svcCfg.IsDeaconEnabled() {
 		d.ensureBootRunning()
 	}
 
 	// 3. Direct Deacon heartbeat check (belt-and-suspenders)
 	// Boot may not detect all stuck states; this provides a fallback
-	// Only run if Deacon patrol is enabled
-	if d.isPatrolActive("deacon") {
+	// Only run if Deacon patrol is enabled and deacon service is enabled
+	if d.isPatrolActive("deacon") && svcCfg.IsDeaconEnabled() {
 		d.checkDeaconHeartbeat()
 	}
 
 	// 4. Ensure Witnesses are running for all rigs (restart if dead)
 	// Check patrol config - can be disabled in mayor/daemon.json
-	if d.isPatrolActive("witness") {
+	// Check services config - can be disabled in settings/config.json
+	if d.isPatrolActive("witness") && svcCfg.IsWitnessEnabled() {
 		d.ensureWitnessesRunning()
 	} else {
-		d.logger.Printf("Witness patrol disabled in config, skipping")
+		if !svcCfg.IsWitnessEnabled() {
+			d.logger.Printf("Witnesses disabled in services config, skipping")
+		} else {
+			d.logger.Printf("Witness patrol disabled in config, skipping")
+		}
 		// Kill leftover witness sessions from before patrol was disabled. (hq-2mstj)
 		d.killWitnessSessions()
 	}
 
 	// 5. Ensure Refineries are running for all rigs (restart if dead)
 	// Check patrol config - can be disabled in mayor/daemon.json
+	// Check services config - can be disabled in settings/config.json
 	// Pressure-gated: refineries consume API credits, defer when system is loaded.
-	if d.isPatrolActive("refinery") {
+	if d.isPatrolActive("refinery") && svcCfg.IsRefineryEnabled() {
 		if p := d.checkPressure("refinery"); !p.OK {
 			d.logger.Printf("Deferring refinery spawn: %s", p.Reason)
 		} else {
 			d.ensureRefineriesRunning()
 		}
 	} else {
-		d.logger.Printf("Refinery patrol disabled in config, skipping")
+		if !svcCfg.IsRefineryEnabled() {
+			d.logger.Printf("Refineries disabled in services config, skipping")
+		} else {
+			d.logger.Printf("Refinery patrol disabled in config, skipping")
+		}
 		// Kill leftover refinery sessions from before patrol was disabled. (hq-2mstj)
 		d.killRefinerySessions()
 	}
 
 	// 6. Ensure Mayor is running (restart if dead)
-	d.ensureMayorRunning()
+	// Check services config - can be disabled in settings/config.json
+	if svcCfg.IsMayorEnabled() {
+		d.ensureMayorRunning()
+	} else {
+		d.logger.Printf("Mayor disabled in services config, skipping")
+	}
 
 	// 6.5. Handle Dog lifecycle: cleanup stuck dogs and dispatch plugins
 	// Pressure-gated: dog dispatch spawns new agent sessions.

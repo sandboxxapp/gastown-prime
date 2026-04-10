@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	agentconfig "github.com/steveyegge/gastown/internal/config"
 )
 
 func TestLoadPatrolConfig(t *testing.T) {
@@ -230,5 +232,157 @@ func TestDoltRemotesInterval(t *testing.T) {
 	}
 	if got := doltRemotesInterval(config); got != 5*60*1000000000 {
 		t.Errorf("expected 5m interval, got %v", got)
+	}
+}
+
+func TestLoadServicesConfig(t *testing.T) {
+	// No settings file: returns nil (nil is safe — all Is*Enabled() return true)
+	tmpDir := t.TempDir()
+	d := &Daemon{config: &Config{TownRoot: tmpDir}}
+	svc := d.loadServicesConfig()
+	if svc != nil {
+		t.Errorf("expected nil for missing settings, got %+v", svc)
+	}
+	// nil receiver still defaults to enabled
+	if !svc.IsDeaconEnabled() {
+		t.Error("expected deacon enabled on nil ServicesConfig")
+	}
+
+	// Valid settings with services disabled
+	settingsDir := filepath.Join(tmpDir, "settings")
+	if err := os.MkdirAll(settingsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(settingsDir, "config.json"), []byte(`{
+		"type": "town-settings", "version": 1,
+		"services": {
+			"deacon": "disabled",
+			"mayor": "disabled",
+			"witnesses": "disabled",
+			"refineries": "disabled"
+		}
+	}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	svc = d.loadServicesConfig()
+	if svc == nil {
+		t.Fatal("expected non-nil ServicesConfig")
+	}
+	if svc.IsDeaconEnabled() {
+		t.Error("expected deacon disabled")
+	}
+	if svc.IsMayorEnabled() {
+		t.Error("expected mayor disabled")
+	}
+	if svc.IsWitnessEnabled() {
+		t.Error("expected witnesses disabled")
+	}
+	if svc.IsRefineryEnabled() {
+		t.Error("expected refineries disabled")
+	}
+}
+
+func TestServicesConfigGatesAgentSpawning(t *testing.T) {
+	// This test verifies the gating logic composition:
+	// agent spawns require BOTH patrol active AND service enabled.
+	tests := []struct {
+		name           string
+		patrolConfig   *DaemonPatrolConfig
+		disabledPtrols map[string]bool
+		servicesConfig *agentconfig.ServicesConfig
+		// expected results for each service
+		deaconActive  bool
+		witnessActive bool
+		refineryActive bool
+		mayorActive   bool
+	}{
+		{
+			name:           "all defaults (nil everything) → all active",
+			deaconActive:  true,
+			witnessActive: true,
+			refineryActive: true,
+			mayorActive:   true,
+		},
+		{
+			name:           "services all disabled → none active",
+			servicesConfig: &agentconfig.ServicesConfig{
+				Deacon:     "disabled",
+				Mayor:      "disabled",
+				Witnesses:  "disabled",
+				Refineries: "disabled",
+			},
+			deaconActive:  false,
+			witnessActive: false,
+			refineryActive: false,
+			mayorActive:   false,
+		},
+		{
+			name: "patrol disabled trumps service enabled",
+			patrolConfig: &DaemonPatrolConfig{
+				Patrols: &PatrolsConfig{
+					Witness: &PatrolConfig{Enabled: false},
+				},
+			},
+			servicesConfig: nil, // defaults to enabled
+			witnessActive: false,
+			deaconActive:  true,
+			refineryActive: true,
+			mayorActive:   true,
+		},
+		{
+			name: "service disabled trumps patrol enabled",
+			patrolConfig: nil, // defaults to enabled
+			servicesConfig: &agentconfig.ServicesConfig{
+				Witnesses: "disabled",
+			},
+			witnessActive: false,
+			deaconActive:  true,
+			refineryActive: true,
+			mayorActive:   true,
+		},
+		{
+			name: "witnesses on-demand counts as disabled for daemon spawning",
+			servicesConfig: &agentconfig.ServicesConfig{
+				Witnesses: "on-demand",
+			},
+			witnessActive: false,
+			deaconActive:  true,
+			refineryActive: true,
+			mayorActive:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Daemon{
+				patrolConfig:    tt.patrolConfig,
+				disabledPatrols: tt.disabledPtrols,
+			}
+			svc := tt.servicesConfig
+
+			// Deacon: patrol + services
+			gotDeacon := d.isPatrolActive("deacon") && svc.IsDeaconEnabled()
+			if gotDeacon != tt.deaconActive {
+				t.Errorf("deacon: got %v, want %v", gotDeacon, tt.deaconActive)
+			}
+
+			// Witness: patrol + services
+			gotWitness := d.isPatrolActive("witness") && svc.IsWitnessEnabled()
+			if gotWitness != tt.witnessActive {
+				t.Errorf("witness: got %v, want %v", gotWitness, tt.witnessActive)
+			}
+
+			// Refinery: patrol + services
+			gotRefinery := d.isPatrolActive("refinery") && svc.IsRefineryEnabled()
+			if gotRefinery != tt.refineryActive {
+				t.Errorf("refinery: got %v, want %v", gotRefinery, tt.refineryActive)
+			}
+
+			// Mayor: services only (no patrol gate)
+			gotMayor := svc.IsMayorEnabled()
+			if gotMayor != tt.mayorActive {
+				t.Errorf("mayor: got %v, want %v", gotMayor, tt.mayorActive)
+			}
+		})
 	}
 }
