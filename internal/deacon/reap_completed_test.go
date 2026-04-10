@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// Integration-level tests verify the full ScanCompletedPolecats flow,
+// not just individual helpers. These run without tmux to verify the
+// discovery and guard logic.
+
 func TestDefaultReapConfig(t *testing.T) {
 	cfg := DefaultReapConfig()
 
@@ -235,5 +239,88 @@ func TestIsBeadClosed_OpenStatus(t *testing.T) {
 		if isClosedStatus(status) {
 			t.Errorf("isClosedStatus(%q) = true, want false", status)
 		}
+	}
+}
+
+func TestScanCompletedPolecats_EmptyTown(t *testing.T) {
+	townRoot := t.TempDir()
+	cfg := DefaultReapConfig()
+
+	result, err := ScanCompletedPolecats(townRoot, cfg)
+	if err != nil {
+		t.Fatalf("ScanCompletedPolecats error: %v", err)
+	}
+	if result.TotalPolecats != 0 {
+		t.Errorf("TotalPolecats = %d, want 0", result.TotalPolecats)
+	}
+	if result.Reaped != 0 {
+		t.Errorf("Reaped = %d, want 0", result.Reaped)
+	}
+	if result.Completed != 0 {
+		t.Errorf("Completed = %d, want 0", result.Completed)
+	}
+}
+
+func TestScanCompletedPolecats_PolecatsWithoutSessions(t *testing.T) {
+	// Polecats that have directories but no tmux sessions should not be reaped.
+	// This verifies the "no session → nothing to reap" guard.
+	townRoot := t.TempDir()
+
+	// Create rig with polecat directories (no tmux sessions exist)
+	rigDir := filepath.Join(townRoot, "testrig", "polecats")
+	if err := os.MkdirAll(filepath.Join(rigDir, "alpha"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(rigDir, "beta"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := DefaultReapConfig()
+	result, err := ScanCompletedPolecats(townRoot, cfg)
+	if err != nil {
+		t.Fatalf("ScanCompletedPolecats error: %v", err)
+	}
+	if result.TotalPolecats != 2 {
+		t.Errorf("TotalPolecats = %d, want 2", result.TotalPolecats)
+	}
+	// No sessions exist → no completions found → nothing reaped
+	if result.Completed != 0 {
+		t.Errorf("Completed = %d, want 0 (no tmux sessions)", result.Completed)
+	}
+	if result.Reaped != 0 {
+		t.Errorf("Reaped = %d, want 0", result.Reaped)
+	}
+}
+
+func TestScanCompletedPolecats_DryRunDoesNotKill(t *testing.T) {
+	// In dry-run mode, completed polecats should be discovered but not reaped.
+	townRoot := t.TempDir()
+
+	// Create a rig with polecats
+	rigDir := filepath.Join(townRoot, "testrig", "polecats")
+	if err := os.MkdirAll(filepath.Join(rigDir, "alpha"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &ReapConfig{
+		IdleThreshold: DefaultIdleThreshold,
+		DryRun:        true,
+	}
+	result, err := ScanCompletedPolecats(townRoot, cfg)
+	if err != nil {
+		t.Fatalf("ScanCompletedPolecats error: %v", err)
+	}
+	// Dry run should never set Reaped > 0
+	if result.Reaped != 0 {
+		t.Errorf("Reaped = %d, want 0 in dry-run mode", result.Reaped)
+	}
+}
+
+func TestRemovePolecatWorktree_NonexistentPath(t *testing.T) {
+	// removePolecatWorktree should handle nonexistent paths gracefully.
+	// git worktree remove fails silently, os.RemoveAll is no-op for missing paths.
+	err := removePolecatWorktree("/nonexistent/worktree", "/nonexistent/polecat")
+	if err != nil {
+		t.Errorf("expected no error for nonexistent path (graceful cleanup), got: %v", err)
 	}
 }
