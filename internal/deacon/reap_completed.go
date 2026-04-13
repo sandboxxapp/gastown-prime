@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/session"
@@ -114,7 +115,18 @@ func ScanCompletedPolecats(townRoot string, cfg *ReapConfig) (*ReapScanResult, e
 		}
 
 		// 3. Check bead status — is the work done?
-		beadID, beadStatus := getPolecatBeadStatus(townRoot, dir.Rig, dir.Polecat)
+		beadID, beadStatus, beadErr := getPolecatBeadStatus(townRoot, dir.Rig, dir.Polecat)
+		if beadErr != nil {
+			// Can't determine bead status — don't reap (could be a transient failure).
+			// Previously this silently returned ("","") which treated bd failures as
+			// "no bead" and incorrectly made the polecat eligible for reaping.
+			result.Results = append(result.Results, &ReapResult{
+				Rig:     dir.Rig,
+				Polecat: dir.Polecat,
+				Error:   fmt.Sprintf("bead query failed: %v", beadErr),
+			})
+			continue
+		}
 		if beadID != "" && !isClosedStatus(beadStatus) {
 			continue // Bead still open — work not done
 		}
@@ -237,34 +249,42 @@ func polecatWorktreePath(townRoot, rigName, polecatName string) string {
 }
 
 // getPolecatBeadStatus queries the agent bead for a polecat to get its hook bead status.
-// Returns (beadID, status) where beadID is the hooked bead and status is its current state.
-// Returns ("", "") if no bead info is available.
-func getPolecatBeadStatus(townRoot, rigName, polecatName string) (string, string) {
+// Returns (beadID, status, err) where beadID is the hooked bead and status is its current state.
+// Returns ("", "", nil) if no bead is assigned. Returns non-nil error if the query itself failed.
+func getPolecatBeadStatus(townRoot, rigName, polecatName string) (string, string, error) {
 	// Query bd for the agent bead's hook_bead field
 	assignee := fmt.Sprintf("%s/polecats/%s", rigName, polecatName)
 	cmd := exec.Command("bd", "list", "--assignee="+assignee, "--json", "--flat", "--limit=1")
 	cmd.Dir = townRoot
+	// Set BEADS_DIR explicitly so bd finds the correct database regardless of
+	// the daemon's inherited environment. Matches pattern in plugin/recording.go.
+	cmd.Env = append(os.Environ(), "BEADS_DIR="+beads.ResolveBeadsDir(townRoot))
 	util.SetDetachedProcessGroup(cmd)
 
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	output, err := cmd.Output()
 	if err != nil {
-		return "", ""
+		return "", "", fmt.Errorf("bd list --assignee=%s: %w (stderr: %s)", assignee, err, strings.TrimSpace(stderr.String()))
 	}
 
 	trimmed := bytes.TrimSpace(output)
 	if len(trimmed) == 0 || string(trimmed) == "null" || (trimmed[0] != '[' && trimmed[0] != '{') {
-		return "", ""
+		return "", "", nil
 	}
 
-	var beads []struct {
+	var beadResults []struct {
 		ID     string `json:"id"`
 		Status string `json:"status"`
 	}
-	if err := json.Unmarshal(trimmed, &beads); err != nil || len(beads) == 0 {
-		return "", ""
+	if err := json.Unmarshal(trimmed, &beadResults); err != nil {
+		return "", "", fmt.Errorf("parsing bd output: %w", err)
+	}
+	if len(beadResults) == 0 {
+		return "", "", nil
 	}
 
-	return beads[0].ID, beads[0].Status
+	return beadResults[0].ID, beadResults[0].Status, nil
 }
 
 // isClosedStatus returns true if the bead status indicates the work is complete.

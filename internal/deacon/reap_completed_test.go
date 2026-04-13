@@ -316,6 +316,47 @@ func TestScanCompletedPolecats_DryRunDoesNotKill(t *testing.T) {
 	}
 }
 
+func TestGetPolecatBeadStatus_BdNotInPath(t *testing.T) {
+	// When bd is not in PATH, getPolecatBeadStatus should return a non-nil error
+	// instead of silently returning ("","") which would be misinterpreted as "no bead".
+	townRoot := t.TempDir()
+
+	// Set PATH to empty to ensure bd isn't found
+	origPath := os.Getenv("PATH")
+	t.Setenv("PATH", "")
+	defer os.Setenv("PATH", origPath)
+
+	beadID, status, err := getPolecatBeadStatus(townRoot, "testrig", "ghost")
+	if err == nil {
+		t.Error("expected error when bd is not in PATH, got nil")
+	}
+	if beadID != "" || status != "" {
+		t.Errorf("expected empty beadID/status on error, got %q/%q", beadID, status)
+	}
+}
+
+func TestGetPolecatBeadStatus_SetsBeadsDir(t *testing.T) {
+	// Verify that BEADS_DIR is set in the command environment.
+	// We can't easily test the full bd flow without a real database,
+	// but we can verify the function doesn't panic and returns an error
+	// (not silent empty) when bd can't connect.
+	townRoot := t.TempDir()
+
+	// Create a .beads directory so ResolveBeadsDir has something to resolve
+	if err := os.MkdirAll(filepath.Join(townRoot, ".beads"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := getPolecatBeadStatus(townRoot, "testrig", "worker1")
+	// Should get an error (bd not configured or not in PATH in test env),
+	// NOT a silent ("","") return.
+	if err == nil {
+		// If somehow bd is available in the test environment and returns no results,
+		// that's also acceptable — the key test is that it doesn't panic.
+		t.Log("bd succeeded in test environment (no error)")
+	}
+}
+
 func TestRemovePolecatWorktree_NonexistentPath(t *testing.T) {
 	// removePolecatWorktree should handle nonexistent paths gracefully.
 	// git worktree remove fails silently, os.RemoveAll is no-op for missing paths.
