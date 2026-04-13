@@ -1028,7 +1028,11 @@ func hookBeadWithRetry(beadID, targetAgent, hookDir string) error {
 
 	var lastErr error
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		err := BdCmd("update", beadID, "--status=hooked", "--assignee="+targetAgent).
+		hookArgs := []string{"update", beadID, "--status=hooked", "--assignee=" + targetAgent}
+		if dbPath := resolveBeadsDirPath(beadID); dbPath != "" {
+			hookArgs = append([]string{"--db", dbPath}, hookArgs...)
+		}
+		err := BdCmd(hookArgs...).
 			Dir(hookDir).
 			Run()
 		if err != nil {
