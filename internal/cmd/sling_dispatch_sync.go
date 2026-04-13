@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/steveyegge/gastown/internal/formula"
+	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/util"
 )
 
@@ -50,6 +52,39 @@ func syncBeadToRig(townRoot, rigName string) error {
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("bd repo sync: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
+// syncFormulasToRig updates the per-rig .beads/formulas/ with the latest
+// embedded formulas from the gt binary. This ensures that when CookFormula
+// runs in the rig's directory, it finds the current formula versions rather
+// than stale copies from a prior gt install.
+//
+// Uses formula.UpdateFormulas which:
+//   - Provisions new formulas that don't exist yet
+//   - Updates outdated formulas (embedded changed, user hasn't modified)
+//   - Preserves user-modified formulas (won't overwrite customizations)
+//
+// Non-fatal by convention: callers log and continue on error.
+func syncFormulasToRig(townRoot, rigName string) error {
+	if rigName == "" {
+		return nil
+	}
+
+	rigPath := filepath.Join(townRoot, rigName)
+	rigBeadsDir := filepath.Join(rigPath, ".beads")
+	if _, err := os.Stat(rigBeadsDir); os.IsNotExist(err) {
+		return nil // No rig-level beads database — nothing to sync to
+	}
+
+	updated, _, reinstalled, err := formula.UpdateFormulas(rigPath)
+	if err != nil {
+		return fmt.Errorf("updating rig formulas: %w", err)
+	}
+	if updated+reinstalled > 0 {
+		fmt.Printf("  %s Synced %d formula(s) to rig %s\n",
+			style.Bold.Render("→"), updated+reinstalled, rigName)
 	}
 	return nil
 }

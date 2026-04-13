@@ -280,6 +280,15 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		}
 	}
 
+	// 4.6: Sync embedded formulas to per-rig .beads/formulas/ before cooking.
+	// Without this, the rig may have stale formula copies from a prior gt install,
+	// causing CookFormula to use outdated formulas instead of the latest embedded versions.
+	if params.RigName != "" && params.FormulaName != "" {
+		if syncErr := syncFormulasToRig(townRoot, params.RigName); syncErr != nil {
+			fmt.Printf("  %s Could not sync formulas to rig: %v\n", style.Dim.Render("Warning:"), syncErr)
+		}
+	}
+
 	// 5. Cook formula (unless SkipCook)
 	formulaCooked := params.SkipCook
 	if params.FormulaName != "" && !formulaCooked {
