@@ -162,6 +162,26 @@ func TestEnsureLifecycleDefaults_FillsPolecatReaper(t *testing.T) {
 	}
 }
 
+func TestPolecatReaperDiagEveryN(t *testing.T) {
+	// Verify the diagnostic logging constant is reasonable (not too chatty, not too silent).
+	if polecatReaperDiagEveryN < 5 {
+		t.Errorf("polecatReaperDiagEveryN = %d, should be >= 5 to avoid log spam", polecatReaperDiagEveryN)
+	}
+	if polecatReaperDiagEveryN > 60 {
+		t.Errorf("polecatReaperDiagEveryN = %d, should be <= 60 to ensure timely diagnostics", polecatReaperDiagEveryN)
+	}
+}
+
+func TestPolecatReaperScanCount_Increments(t *testing.T) {
+	// Verify the atomic counter works as expected.
+	before := polecatReaperScanCount.Load()
+	polecatReaperScanCount.Add(1)
+	after := polecatReaperScanCount.Load()
+	if after != before+1 {
+		t.Errorf("scan count did not increment: before=%d, after=%d", before, after)
+	}
+}
+
 func TestEnsureLifecycleDefaults_PreservesExistingPolecatReaper(t *testing.T) {
 	config := &DaemonPatrolConfig{
 		Type:    "daemon-patrol-config",

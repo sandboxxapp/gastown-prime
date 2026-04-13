@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"sync/atomic"
 	"time"
 
 	"github.com/steveyegge/gastown/internal/deacon"
@@ -11,7 +12,14 @@ const (
 	// polecats. Set to 60s per issue spec — completed polecats are low-cost to
 	// scan and quick cleanup keeps the town tidy.
 	defaultPolecatReaperInterval = 60 * time.Second
+
+	// polecatReaperDiagEveryN logs a diagnostic summary every N scans even when
+	// nothing is reaped, so operators can confirm the patrol is running.
+	polecatReaperDiagEveryN = 10
 )
+
+// polecatReaperScanCount tracks how many scans have run (for periodic diag logging).
+var polecatReaperScanCount atomic.Int64
 
 // PolecatReaperConfig holds configuration for the polecat_reaper patrol.
 // This patrol scans for completed polecats (bead closed, agent not running)
@@ -65,12 +73,20 @@ func (d *Daemon) reapCompletedPolecats() {
 		return
 	}
 
+	scanNum := polecatReaperScanCount.Add(1)
+
+	// Always log when there's activity (reaped or completed polecats found).
 	if result.Reaped > 0 || result.Completed > 0 {
 		d.logger.Printf("polecat_reaper: scanned=%d completed=%d reaped=%d",
 			result.TotalPolecats, result.Completed, result.Reaped)
+	} else if scanNum%polecatReaperDiagEveryN == 1 {
+		// Periodic diagnostic: log every Nth scan even when idle so operators
+		// can confirm the patrol is running and see what it scanned.
+		d.logger.Printf("polecat_reaper: alive (scan #%d, polecats_found=%d)",
+			scanNum, result.TotalPolecats)
 	}
 
-	// Log details for reaped polecats
+	// Log details for reaped polecats and errors (including bead query failures).
 	for _, r := range result.Results {
 		if r.Error != "" {
 			d.logger.Printf("polecat_reaper: %s/%s: error: %s", r.Rig, r.Polecat, r.Error)
