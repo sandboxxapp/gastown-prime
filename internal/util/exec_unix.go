@@ -19,10 +19,16 @@ func SetProcessGroup(cmd *exec.Cmd) {
 	}
 }
 
-// SetDetachedProcessGroup configures a command to run in its own session
-// (Setsid) and process group (Setpgid), fully detaching it from the parent.
-// Without Setsid, the child shares a session with the parent and receives
-// SIGHUP when the parent's terminal exits — causing daemon shutdown.
+// SetDetachedProcessGroup configures a command to run in its own process group.
+// Uses Setpgid only — Setsid causes "operation not permitted" on macOS when
+// the calling process is already a session leader. For daemon detachment,
+// use SetDaemonProcessGroup which adds Setsid.
 func SetDetachedProcessGroup(cmd *exec.Cmd) {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+}
+
+// SetDaemonProcessGroup configures a command for full daemon detachment.
+// Adds Setsid for session independence — only use for the daemon subprocess.
+func SetDaemonProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true, Setsid: true}
 }
