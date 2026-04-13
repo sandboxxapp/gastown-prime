@@ -55,3 +55,38 @@ func TestPolecatWorkSubmitStep_UsesGHPRCreate(t *testing.T) {
 		t.Error("submit-and-exit step should not reference 'merge queue'")
 	}
 }
+
+// TestPolecatWorkSubmitStep_ExitsSession verifies that the mol-polecat-work
+// submit-and-exit step instructs polecats to exit the Claude session after
+// creating a PR. Without an explicit /exit, agent_alive stays true and the
+// reaper cannot clean up the polecat.
+func TestPolecatWorkSubmitStep_ExitsSession(t *testing.T) {
+	content, err := GetEmbeddedFormulaContent("mol-polecat-work")
+	if err != nil {
+		t.Fatalf("GetEmbeddedFormulaContent: %v", err)
+	}
+
+	f, err := Parse(content)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+
+	var submitStep *Step
+	for i := range f.Steps {
+		if f.Steps[i].ID == "submit-and-exit" {
+			submitStep = &f.Steps[i]
+			break
+		}
+	}
+	if submitStep == nil {
+		t.Fatal("submit-and-exit step not found in mol-polecat-work")
+	}
+
+	desc := submitStep.Description
+
+	// The step must instruct the polecat to exit its Claude session
+	// so agent_alive goes false and the reaper can clean up.
+	if !strings.Contains(desc, "/exit") {
+		t.Error("submit-and-exit step must contain '/exit' to terminate the Claude session for reaper cleanup")
+	}
+}
