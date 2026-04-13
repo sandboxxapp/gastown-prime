@@ -49,6 +49,7 @@ type ReapResult struct {
 	BeadID          string `json:"bead_id,omitempty"`
 	BeadStatus      string `json:"bead_status,omitempty"`
 	SessionKilled   bool   `json:"session_killed"`
+	BeadsSynced     bool   `json:"beads_synced,omitempty"`
 	WorktreeRemoved bool   `json:"worktree_removed"`
 	PartialWork     bool   `json:"partial_work,omitempty"`
 	WorktreeDirty   bool   `json:"worktree_dirty,omitempty"`
@@ -160,6 +161,13 @@ func ScanCompletedPolecats(townRoot string, cfg *ReapConfig) (*ReapScanResult, e
 			continue
 		}
 		reapResult.SessionKilled = true
+
+		// Sync beads from rig to town root before removing the worktree.
+		if err := syncBeadsToTown(townRoot, dir.Rig); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: beads sync failed for %s/%s: %v\n", dir.Rig, dir.Polecat, err)
+		} else {
+			reapResult.BeadsSynced = true
+		}
 
 		// Remove worktree directory (polecats/<name>/)
 		polecatDirPath := filepath.Join(townRoot, dir.Rig, "polecats", dir.Polecat)
@@ -314,6 +322,33 @@ func checkReapWorktreeState(worktreePath string, result *ReapResult) {
 }
 
 // removePolecatWorktree removes the git worktree and its parent polecat directory.
+// syncBeadsToTown runs `bd repo sync` at the town root to pull rig-level bead
+// changes into the town-root .beads/ database. This is the town-root sync step
+// of the per-rig beads architecture: polecats work in rig-local .beads/ and the
+// reaper syncs to the mayor's global view on completion.
+func syncBeadsToTown(townRoot, rigName string) error {
+	rigBeadsDir := filepath.Join(townRoot, rigName, ".beads")
+	if _, err := os.Stat(rigBeadsDir); os.IsNotExist(err) {
+		return nil // No rig-level beads database — nothing to sync
+	}
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	if _, err := os.Stat(townBeadsDir); os.IsNotExist(err) {
+		return nil // No town-root beads database — nothing to sync into
+	}
+
+	cmd := exec.Command("bd", "repo", "sync")
+	cmd.Dir = townRoot
+	cmd.Env = append(os.Environ(), "BEADS_DIR="+townBeadsDir)
+	util.SetDetachedProcessGroup(cmd)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("bd repo sync: %w (stderr: %s)", err, strings.TrimSpace(stderr.String()))
+	}
+	return nil
+}
+
 // Handles both new structure (polecats/<name>/<rigname>/) and old structure
 // (polecats/<name>/) by removing the worktree first, then cleaning up the
 // parent directory if empty.

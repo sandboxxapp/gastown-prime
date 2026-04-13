@@ -965,23 +965,11 @@ func TestAddWithOptions_NoPrimeMDCreatedLocally(t *testing.T) {
 		t.Fatalf("AddWithOptions: %v", err)
 	}
 
-	// BUG CHECK: The worktree should NOT have a local .beads/PRIME.md
-	// ProvisionPrimeMDForWorktree should follow redirect to mayor/rig/.beads
-	worktreePrimeMD := filepath.Join(polecat.ClonePath, ".beads", "PRIME.md")
-	if _, err := os.Stat(worktreePrimeMD); err == nil {
-		t.Errorf("PRIME.md should NOT exist in worktree .beads/ (should be at rig level via redirect): %s", worktreePrimeMD)
-	}
-
-	// Verify the redirect file exists
+	// With per-rig beads (no redirect), polecats work in their own .beads/ context.
+	// The redirect file should NOT exist — polecats no longer get redirects.
 	worktreeRedirect := filepath.Join(polecat.ClonePath, ".beads", "redirect")
-	if _, err := os.Stat(worktreeRedirect); os.IsNotExist(err) {
-		t.Errorf("redirect file should exist at: %s", worktreeRedirect)
-	}
-
-	// Verify PRIME.md was created at mayor/rig/.beads/ (where redirect points)
-	mayorPrimeMD := filepath.Join(mayorBeads, "PRIME.md")
-	if _, err := os.Stat(mayorPrimeMD); os.IsNotExist(err) {
-		t.Errorf("PRIME.md should exist at mayor/rig/.beads/: %s", mayorPrimeMD)
+	if _, err := os.Stat(worktreeRedirect); err == nil {
+		t.Errorf("redirect file should NOT exist (polecats use per-rig beads): %s", worktreeRedirect)
 	}
 }
 
