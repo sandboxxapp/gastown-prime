@@ -540,6 +540,11 @@ You should see output like:
 https://github.com/<org>/<repo>/pull/<number>
 ```
 
+**3. Exit the session so the reaper can clean up:**
+```
+/exit
+```
+
 **What happens next (not your concern):**
 - The mayor reviews your PR and merges it
 - The refinery tracks the PR and closes your issue after merge
