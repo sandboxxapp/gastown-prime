@@ -853,6 +853,10 @@ func InstantiateFormulaOnBead(ctx context.Context, formulaName, beadID, title, h
 // bonding fails with "not found" for the generated wisp ID.
 func bondFormulaDirect(formulaName, beadID, formulaWorkDir, townRoot string, vars []string) (string, error) {
 	bondArgs := []string{"mol", "bond", formulaName, beadID, "--json", "--ephemeral"}
+	// Use --db to resolve the bead from town-root beads (bead may not exist in per-rig beads)
+	if dbPath := resolveBeadsDirPath(beadID); dbPath != "" {
+		bondArgs = append([]string{"--db", dbPath}, bondArgs...)
+	}
 	for _, variable := range vars {
 		bondArgs = append(bondArgs, "--var", variable)
 	}
