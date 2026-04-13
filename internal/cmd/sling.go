@@ -868,9 +868,20 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		fmt.Printf("  Instantiating formula %s...\n", formulaName)
 
 		// Auto-inject rig command vars as defaults (user --var flags override)
+		targetRigName := ""
 		if parts := strings.SplitN(targetAgent, "/", 2); len(parts) >= 1 && parts[0] != "" {
-			rigCmdVars := loadRigCommandVars(townRoot, parts[0])
+			targetRigName = parts[0]
+			rigCmdVars := loadRigCommandVars(townRoot, targetRigName)
 			slingVars = append(rigCmdVars, slingVars...)
+		}
+
+		// Sync bead from town-root .beads/ to per-rig .beads/ before formula bonding.
+		// InstantiateFormulaOnBead routes bd commands to the rig directory; the bead
+		// must exist in the rig's Dolt DB first (town→rig sync, mirrors rig→town on reap).
+		if targetRigName != "" {
+			if syncErr := syncBeadToRig(townRoot, targetRigName); syncErr != nil {
+				fmt.Printf("  %s Could not sync bead to rig beads: %v\n", style.Dim.Render("Warning:"), syncErr)
+			}
 		}
 
 		result, err := InstantiateFormulaOnBead(ctx, formulaName, beadID, info.Title, hookWorkDir, townRoot, false, slingVars)
