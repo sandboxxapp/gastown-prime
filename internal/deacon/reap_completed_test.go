@@ -127,6 +127,70 @@ func TestListPolecatDirs_WithPolecats(t *testing.T) {
 	}
 }
 
+func TestListPolecatDirs_SymlinkedRigs(t *testing.T) {
+	// In production, rig directories at the town root are symlinks
+	// (e.g., townRoot/gastown-prime -> /path/to/gastown-prime).
+	// os.ReadDir returns DirEntry where IsDir() is false for symlinks,
+	// so listPolecatDirs must follow symlinks to discover polecats.
+	townRoot := t.TempDir()
+
+	// Create the real rig directory with polecats somewhere outside townRoot
+	realRig := t.TempDir()
+	polecatsDir := filepath.Join(realRig, "polecats")
+	if err := os.MkdirAll(filepath.Join(polecatsDir, "obsidian"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Symlink it into the town root (mimics production layout)
+	if err := os.Symlink(realRig, filepath.Join(townRoot, "gastown-prime")); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := listPolecatDirs(townRoot)
+	if len(dirs) != 1 {
+		t.Errorf("expected 1 polecat dir through symlink, got %d", len(dirs))
+	}
+	if len(dirs) == 1 {
+		if dirs[0].Rig != "gastown-prime" {
+			t.Errorf("rig = %q, want gastown-prime", dirs[0].Rig)
+		}
+		if dirs[0].Polecat != "obsidian" {
+			t.Errorf("polecat = %q, want obsidian", dirs[0].Polecat)
+		}
+	}
+}
+
+func TestListPolecatDirs_RelativeSymlinkedRigs(t *testing.T) {
+	// Some rigs use relative symlinks (e.g., townRoot/ads-dw -> rigs/ads-dw).
+	// listPolecatDirs must handle both absolute and relative symlinks.
+	townRoot := t.TempDir()
+
+	// Create real rig dir inside townRoot/rigs/ (like the bridge layout)
+	rigsSubdir := filepath.Join(townRoot, "rigs", "ads-dw", "polecats")
+	if err := os.MkdirAll(filepath.Join(rigsSubdir, "worker1"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create relative symlink: townRoot/ads-dw -> rigs/ads-dw
+	if err := os.Symlink("rigs/ads-dw", filepath.Join(townRoot, "ads-dw")); err != nil {
+		t.Fatal(err)
+	}
+
+	dirs := listPolecatDirs(townRoot)
+
+	// Should find polecats through the symlink (ads-dw) but NOT through
+	// the rigs/ scan since rigs/ads-dw doesn't have polecats at the right depth.
+	foundViaSymlink := false
+	for _, d := range dirs {
+		if d.Rig == "ads-dw" && d.Polecat == "worker1" {
+			foundViaSymlink = true
+		}
+	}
+	if !foundViaSymlink {
+		t.Errorf("expected to find ads-dw/worker1 through symlink, got %v", dirs)
+	}
+}
+
 func TestListPolecatDirs_MultipleRigs(t *testing.T) {
 	townRoot := t.TempDir()
 
