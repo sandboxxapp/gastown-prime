@@ -233,7 +233,7 @@ func resolveBeadsDirPath(beadID string) string {
 // Uses --db flag to target the correct database per-command without
 // polluting the process environment (which breaks gt's redirect mechanism).
 func verifyBeadExists(beadID string) error {
-	args := []string{"show", beadID, "--json", "--allow-stale"}
+	args := []string{"show", beadID, "--json"}
 	if dbPath := resolveBeadsDirPath(beadID); dbPath != "" {
 		args = append([]string{"--db", dbPath}, args...)
 	}
@@ -254,7 +254,7 @@ func verifyBeadExists(beadID string) error {
 // Uses --db flag to target the correct database per-command without
 // polluting the process environment (which breaks gt's redirect mechanism).
 func getBeadInfo(beadID string) (*beadInfo, error) {
-	args := []string{"show", beadID, "--json", "--allow-stale"}
+	args := []string{"show", beadID, "--json"}
 	if dbPath := resolveBeadsDirPath(beadID); dbPath != "" {
 		args = append([]string{"--db", dbPath}, args...)
 	}
@@ -307,7 +307,7 @@ func storeFieldsInBead(beadID string, updates beadFieldUpdates) error {
 	issue := &beads.Issue{}
 	if logPath == "" {
 		// Read the bead once
-		out, err := BdCmd("show", beadID, "--json", "--allow-stale").
+		out, err := BdCmd("show", beadID, "--json").
 			Dir(resolveBeadDir(beadID)).
 			StripBeadsDir().
 			Stderr(io.Discard).
