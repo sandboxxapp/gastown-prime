@@ -5,30 +5,21 @@ This molecule guides a polecat through a complete work assignment. Each step
 has clear entry/exit criteria and specific commands to run. A polecat can
 crash after any step and resume from the last completed step.
 
-## Polecat Contract (Self-Cleaning Model)
+## Polecat Contract (Dispatch-and-Kill Model)
 
-You are a self-cleaning worker. You:
+You are a dispatch-and-kill worker. You:
 1. Receive work via your hook (formula checklist + issue)
 2. Work through formula steps in order (shown inline at prime time)
-3. Complete and self-clean via `gt done` (submit + nuke yourself)
-4. You are GONE - Refinery merges from MQ
-
-**Self-cleaning:** When you run `gt done`, you push your work, submit to MQ,
-nuke your sandbox, and exit. There is no idle state. Done means gone.
+3. Submit a PR via `gh pr create` and exit
+4. The mayor reviews and merges your PR
 
 **Important:** This formula defines the workflow template. Steps are shown inline
 when you run `gt prime` — there are no separate step beads to close. Work through
-the checklist, then run `gt done`.
-
-**Speed principle:** You run the full gate suite AFTER rebasing onto the target
-branch (pre-verify step). This enables the refinery to fast-path merge your MR
-in ~5 seconds instead of re-running gates. If pre-verification is skipped or
-stale, the refinery falls through to normal gate execution.
+the checklist, then submit your PR and exit.
 
 **You do NOT:**
-- Push directly to main (Refinery merges from MQ)
-- Close your own issue (Refinery closes after merge)
-- Wait for merge (you're gone after `gt done`)
+- Push directly to main (PRs are the only path to main)
+- Merge your own PR (the mayor reviews and merges)
 - Fix pre-existing failures on main (Refinery owns main health)
 
 ## Variables
@@ -52,7 +43,7 @@ stale, the refinery falls through to normal gate execution.
 | Context filling | Use gt handoff to cycle to fresh session |
 | Unsure what to do | Mail Witness, don't guess |"""
 formula = "mol-polecat-work"
-version = 11
+version = 12
 
 [[steps]]
 id = "load-context"
@@ -453,9 +444,8 @@ id = "pre-verify"
 title = "Pre-merge rebase verification"
 needs = ["build-check"]
 description = """
-Rebase onto the target branch and run the full gate suite. This enables the
-refinery to fast-path merge your MR without re-running gates (~5s merge
-instead of minutes).
+Rebase onto the target branch and run the full gate suite. This ensures
+your PR is clean and ready for review on the latest base.
 
 **1. Fetch and rebase onto target:**
 ```bash
@@ -499,12 +489,11 @@ Empty commands mean "not configured" — skip silently.
 - Do NOT proceed with --pre-verified if gates failed
 
 **4. If all gates pass:**
-You will use `gt done --pre-verified` in the next step. This tells the refinery
-that you ran the full gate suite on a rebased branch, enabling fast-path merge.
+You are ready to submit your PR in the next step.
 
 **Note:** If this step takes too long or the gates are not configured for this
-project, you may skip this step and use `gt done` without --pre-verified.
-The refinery will run gates normally (slower but still correct).
+project, you may skip this step and proceed to submit your PR.
+The reviewer will verify gates in CI.
 
 **Exit criteria:** Branch rebased onto latest origin/{{base_branch}}, all configured gates pass.
 
@@ -515,58 +504,49 @@ STEP_COMPLETE pre-verify
 
 [[steps]]
 id = "submit-and-exit"
-title = "Submit work and self-clean"
+title = "Submit PR and exit"
 needs = ["pre-verify"]
 description = """
-Submit your work and clean up. You cease to exist after this step.
-
-**Self-Cleaning Model:**
-Once you run `gt done`, you're gone. The command:
-1. Pushes your branch to origin
-2. Creates an MR bead in the merge queue
-3. Nukes your sandbox (worktree removal)
-4. Exits your session immediately
+Push your branch and create a GitHub PR. You are done after this step.
 
 **Pre-flight: Verify you have actual work to submit (HARD GATE):**
 ```bash
 git log origin/{{base_branch}}..HEAD --oneline
 ```
-This MUST show at least 1 commit. If it shows nothing, do NOT run `gt done`.
-`gt done` will reject zero-commit branches for polecats.
+This MUST show at least 1 commit. If it shows nothing, you have no work to submit.
 
-**Run gt done:**
+**For report-only tasks (no commits — audits, reviews, research):**
 ```bash
-# For code tasks with pre-verification (recommended — enables fast-path merge):
-gt done --pre-verified --target {{base_branch}}
-
-# For code tasks without pre-verification (gates skipped or failed):
-gt done --target {{base_branch}}
-
-# For report-only tasks (no commits — audits, reviews, research):
 gt done --status DEFERRED
+```
+
+**For code tasks — push and create PR:**
+```bash
+# 1. Push your branch
+git push -u origin HEAD
+
+# 2. Create the PR
+gh pr create --base {{base_branch}} --title "<type>: <short description> ({{issue}})" --body "## Summary
+<what was done and why>
+
+## Test plan
+- <how this was verified>
+
+Bead: {{issue}}"
 ```
 
 You should see output like:
 ```
-✓ Work submitted to merge queue
-  MR ID: gt-xxxxx
-  Source: polecat/<name>
-  Target: {{base_branch}}
-  Issue: {{issue}}
-✓ Sandbox nuked
-✓ Session exiting
+https://github.com/<org>/<repo>/pull/<number>
 ```
 
 **What happens next (not your concern):**
-- Refinery batches MRs and runs gates on the merged stack
-- If green: all MRs in the batch merge to {{base_branch}} at once
-- If red: Refinery bisects to isolate the culprit, merges the good ones
-- Refinery fixes failures itself (inline or via helper polecats)
-- Refinery closes your issue after successful merge
+- The mayor reviews your PR and merges it
+- The refinery tracks the PR and closes your issue after merge
 
-You are NOT involved in any of that. You're gone. Done means gone.
+You are NOT involved in any of that. Your PR is the deliverable.
 
-**Exit criteria:** Work submitted, sandbox nuked, session exited.
+**Exit criteria:** Branch pushed, PR created, session exited.
 
 When this step is complete, output the marker:
 ```
