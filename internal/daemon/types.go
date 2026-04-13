@@ -367,25 +367,30 @@ func GetPatrolRigs(config *DaemonPatrolConfig, patrol string) []string {
 	return nil // All rigs
 }
 
-// loadDisabledPatrolsFromTownSettings loads the disabled_patrols list from
-// town settings (settings/config.json) as a set for O(1) lookup.
-func loadDisabledPatrolsFromTownSettings(townRoot string) map[string]bool {
+// loadDaemonTownSettings loads daemon-relevant fields from town settings
+// (settings/config.json): disabled_patrols as a set for O(1) lookup, and
+// flat_bead_namespace which controls whether rig-bead Dolt lookups are skipped.
+func loadDaemonTownSettings(townRoot string) (disabledPatrols map[string]bool, flatBeadNamespace bool) {
 	settingsPath := filepath.Join(townRoot, "settings", "config.json")
 	data, err := os.ReadFile(settingsPath) //nolint:gosec // G304: path constructed internally
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var raw struct {
-		DisabledPatrols []string `json:"disabled_patrols"`
+		DisabledPatrols   []string `json:"disabled_patrols"`
+		FlatBeadNamespace bool     `json:"flat_bead_namespace"`
 	}
-	if err := json.Unmarshal(data, &raw); err != nil || len(raw.DisabledPatrols) == 0 {
-		return nil
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, false
 	}
-	disabled := make(map[string]bool, len(raw.DisabledPatrols))
-	for _, p := range raw.DisabledPatrols {
-		disabled[p] = true
+	var disabled map[string]bool
+	if len(raw.DisabledPatrols) > 0 {
+		disabled = make(map[string]bool, len(raw.DisabledPatrols))
+		for _, p := range raw.DisabledPatrols {
+			disabled[p] = true
+		}
 	}
-	return disabled
+	return disabled, raw.FlatBeadNamespace
 }
 
 // isPatrolActive checks whether a patrol should run, combining the
