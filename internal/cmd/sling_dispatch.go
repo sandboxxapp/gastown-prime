@@ -271,6 +271,15 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		}
 	}
 
+	// 4.5: Sync bead from town-root .beads/ to per-rig .beads/ before formula bonding.
+	// InstantiateFormulaOnBead and hookBeadWithRetry both route bd commands to the rig
+	// directory via ResolveHookDir; the bead must exist in the rig's Dolt DB first.
+	if params.RigName != "" {
+		if syncErr := syncBeadToRig(townRoot, params.RigName); syncErr != nil {
+			fmt.Printf("  %s Could not sync bead to rig beads: %v\n", style.Dim.Render("Warning:"), syncErr)
+		}
+	}
+
 	// 5. Cook formula (unless SkipCook)
 	formulaCooked := params.SkipCook
 	if params.FormulaName != "" && !formulaCooked {
