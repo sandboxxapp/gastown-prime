@@ -124,15 +124,18 @@ func TestSaveAndLoadPatrolConfig(t *testing.T) {
 	}
 }
 
-func TestLoadDisabledPatrolsFromTownSettings(t *testing.T) {
-	// No settings file: returns nil
+func TestLoadDaemonTownSettings(t *testing.T) {
+	// No settings file: returns nil, false
 	tmpDir := t.TempDir()
-	got := loadDisabledPatrolsFromTownSettings(tmpDir)
+	got, flatNS := loadDaemonTownSettings(tmpDir)
 	if got != nil {
 		t.Errorf("expected nil for missing settings, got %v", got)
 	}
+	if flatNS {
+		t.Error("expected flatBeadNamespace=false for missing settings")
+	}
 
-	// Empty disabled_patrols: returns nil
+	// Empty disabled_patrols: returns nil, false
 	settingsDir := filepath.Join(tmpDir, "settings")
 	if err := os.MkdirAll(settingsDir, 0755); err != nil {
 		t.Fatal(err)
@@ -142,19 +145,23 @@ func TestLoadDisabledPatrolsFromTownSettings(t *testing.T) {
 	}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	got = loadDisabledPatrolsFromTownSettings(tmpDir)
+	got, flatNS = loadDaemonTownSettings(tmpDir)
 	if got != nil {
 		t.Errorf("expected nil for empty disabled_patrols, got %v", got)
 	}
+	if flatNS {
+		t.Error("expected flatBeadNamespace=false for empty settings")
+	}
 
-	// With disabled patrols
+	// With disabled patrols and flat_bead_namespace
 	if err := os.WriteFile(filepath.Join(settingsDir, "config.json"), []byte(`{
 		"type": "town-settings", "version": 1,
-		"disabled_patrols": ["doctor_dog", "compactor_dog"]
+		"disabled_patrols": ["doctor_dog", "compactor_dog"],
+		"flat_bead_namespace": true
 	}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	got = loadDisabledPatrolsFromTownSettings(tmpDir)
+	got, flatNS = loadDaemonTownSettings(tmpDir)
 	if len(got) != 2 {
 		t.Fatalf("expected 2 disabled patrols, got %d", len(got))
 	}
@@ -166,6 +173,9 @@ func TestLoadDisabledPatrolsFromTownSettings(t *testing.T) {
 	}
 	if got["witness"] {
 		t.Error("expected witness to NOT be disabled")
+	}
+	if !flatNS {
+		t.Error("expected flatBeadNamespace=true")
 	}
 }
 

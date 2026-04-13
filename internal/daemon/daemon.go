@@ -67,6 +67,12 @@ type Daemon struct {
 	// mayor/daemon.json. Checked by isPatrolActive alongside patrolConfig.
 	disabledPatrols map[string]bool
 
+	// flatBeadNamespace is loaded from town settings (flat_bead_namespace field).
+	// When true, isRigOperational skips the Dolt rig-bead lookup (gt-rig-<name>)
+	// since those beads don't exist in flat namespaces. This prevents log flooding
+	// and the fail-safe from excluding all rigs when Dolt can't find them.
+	flatBeadNamespace bool
+
 	// Mass death detection: track recent session deaths
 	deathsMu     sync.Mutex
 	recentDeaths []sessionDeath
@@ -203,15 +209,19 @@ func New(config *Config) (*Daemon, error) {
 		}
 	}
 
-	// Load disabled_patrols from town settings (settings/config.json).
-	// This provides a simpler way to disable patrols than editing daemon.json.
-	disabledPatrols := loadDisabledPatrolsFromTownSettings(config.TownRoot)
+	// Load disabled_patrols and flat_bead_namespace from town settings (settings/config.json).
+	// disabled_patrols provides a simpler way to disable patrols than editing daemon.json.
+	// flat_bead_namespace skips rig-bead Dolt lookups that don't exist in flat namespaces.
+	disabledPatrols, flatBeadNamespace := loadDaemonTownSettings(config.TownRoot)
 	if len(disabledPatrols) > 0 {
 		names := make([]string, 0, len(disabledPatrols))
 		for k := range disabledPatrols {
 			names = append(names, k)
 		}
 		logger.Printf("Patrols disabled via town settings: %v", names)
+	}
+	if flatBeadNamespace {
+		logger.Printf("Flat bead namespace enabled: skipping rig-bead status lookups")
 	}
 
 	// Initialize Dolt server manager if configured
@@ -308,7 +318,8 @@ func New(config *Config) (*Daemon, error) {
 	return &Daemon{
 		config:          config,
 		patrolConfig:    patrolConfig,
-		disabledPatrols: disabledPatrols,
+		disabledPatrols:   disabledPatrols,
+		flatBeadNamespace: flatBeadNamespace,
 		tmux:            tmux.NewTmux(),
 		logger:          logger,
 		ctx:             ctx,
@@ -1907,36 +1918,43 @@ func (d *Daemon) isRigOperational(rigName string) (bool, string) {
 
 	// Check rig bead labels (global/synced docked status)
 	// This is the persistent docked state set by 'gt rig dock'
-	rigPath := filepath.Join(d.config.TownRoot, rigName)
+	//
+	// Skip when flat_bead_namespace is true: flat namespaces (e.g. sbx-gastown-*)
+	// don't have gt-rig-<name> beads. The Dolt lookup would always fail, triggering
+	// the fail-safe that excludes all rigs from patrols. Wisp config (checked above)
+	// is the only docked/parked signal in flat namespace towns.
+	if !d.flatBeadNamespace {
+		rigPath := filepath.Join(d.config.TownRoot, rigName)
 
-	// Try to get prefix from rig config.json, fall back to rigs.json registry
-	var prefix string
-	if rigCfg, err := rig.LoadRigConfig(rigPath); err == nil && rigCfg.Beads != nil {
-		prefix = rigCfg.Beads.Prefix
-	} else {
-		// Fall back to registry (mayor/rigs.json) when config.json is missing
-		prefix = agentconfig.GetRigPrefix(d.config.TownRoot, rigName)
-	}
-
-	rigBeadID := fmt.Sprintf("%s-rig-%s", prefix, rigName)
-	rigBeadsDir := beads.ResolveBeadsDir(rigPath)
-	bd := beads.NewWithBeadsDir(rigPath, rigBeadsDir)
-	if issue, err := bd.Show(rigBeadID); err == nil {
-		for _, label := range issue.Labels {
-			if label == "status:docked" {
-				return false, "rig is docked (global)"
-			}
-			if label == "status:parked" {
-				return false, "rig is parked (global)"
-			}
+		// Try to get prefix from rig config.json, fall back to rigs.json registry
+		var prefix string
+		if rigCfg, err := rig.LoadRigConfig(rigPath); err == nil && rigCfg.Beads != nil {
+			prefix = rigCfg.Beads.Prefix
+		} else {
+			// Fall back to registry (mayor/rigs.json) when config.json is missing
+			prefix = agentconfig.GetRigPrefix(d.config.TownRoot, rigName)
 		}
-	} else {
-		// Log when rig bead lookup fails - this helps debug transient Dolt issues
-		// FAIL-SAFE: When we can't verify docked status (Dolt down, network issue, etc.),
-		// assume the rig is NOT operational. This prevents wasting API credits starting
-		// witnesses that might be docked. Better to delay work than burn credits unnecessarily.
-		d.logger.Printf("Warning: failed to check rig bead %s for docked/parked status: %v (assuming not operational)", rigBeadID, err)
-		return false, "cannot verify rig status (Dolt unavailable)"
+
+		rigBeadID := fmt.Sprintf("%s-rig-%s", prefix, rigName)
+		rigBeadsDir := beads.ResolveBeadsDir(rigPath)
+		bd := beads.NewWithBeadsDir(rigPath, rigBeadsDir)
+		if issue, err := bd.Show(rigBeadID); err == nil {
+			for _, label := range issue.Labels {
+				if label == "status:docked" {
+					return false, "rig is docked (global)"
+				}
+				if label == "status:parked" {
+					return false, "rig is parked (global)"
+				}
+			}
+		} else {
+			// Log when rig bead lookup fails - this helps debug transient Dolt issues
+			// FAIL-SAFE: When we can't verify docked status (Dolt down, network issue, etc.),
+			// assume the rig is NOT operational. This prevents wasting API credits starting
+			// witnesses that might be docked. Better to delay work than burn credits unnecessarily.
+			d.logger.Printf("Warning: failed to check rig bead %s for docked/parked status: %v (assuming not operational)", rigBeadID, err)
+			return false, "cannot verify rig status (Dolt unavailable)"
+		}
 	}
 
 	// Check auto_restart config
