@@ -220,7 +220,7 @@ const PolecatLifecycleMarker = "IDLE POLECAT HERESY"
 // that requires overwriting cached CLAUDE.local.md files. The version string
 // is embedded in the template and checked at provision time — if the cached
 // version doesn't match, the file is rewritten with the current template.
-const PolecatTemplateVersion = "v3" // v3: polecat persists findings + /exit, archivist closes bead
+const PolecatTemplateVersion = "v4" // v4: gt exit (auto-commit safety net), domain context injection, no gt done anywhere
 
 // polecatVersionMarker returns the versioned marker string embedded in templates.
 func polecatVersionMarker() string {
