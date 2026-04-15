@@ -2217,8 +2217,8 @@ func isCurrentHookedIssueForAssignee(issue *beads.Issue, assignee string) bool {
 }
 
 // setupSharedBeads propagates beads git config (role, issue_prefix) to the polecat
-// worktree so bd commands work without warnings. Polecats use the per-rig .beads/
-// database naturally — no redirect file needed. (sbx-gastown-vrb4)
+// worktree and ensures the redirect file points to the central town-level store.
+// With flat_bead_namespace, all polecats must route to the town root's .beads/.
 func (m *Manager) setupSharedBeads(clonePath string) error {
 	// Discover the town root for prefix lookup.
 	townRoot := filepath.Dir(m.rig.Path)
@@ -2237,6 +2237,23 @@ func (m *Manager) setupSharedBeads(clonePath string) error {
 	cmd := exec.Command("git", "-C", clonePath, "config", "beads.role", "contributor")
 	util.SetDetachedProcessGroup(cmd)
 	_ = cmd.Run()
+
+	// Ensure the polecat worktree's .beads/redirect points to the town-level
+	// central store. Without this, beads.New(cwd) in gt exit and other commands
+	// discovers a stale rig-level .beads/ with Dolt identity mismatches.
+	polecatBeadsDir := filepath.Join(clonePath, ".beads")
+	if err := os.MkdirAll(polecatBeadsDir, 0700); err != nil {
+		return fmt.Errorf("creating polecat .beads dir: %w", err)
+	}
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	relPath, err := filepath.Rel(clonePath, townBeadsDir)
+	if err != nil {
+		return fmt.Errorf("computing redirect path: %w", err)
+	}
+	redirectPath := filepath.Join(polecatBeadsDir, "redirect")
+	if err := os.WriteFile(redirectPath, []byte(relPath+"\n"), 0600); err != nil {
+		return fmt.Errorf("writing beads redirect: %w", err)
+	}
 
 	return nil
 }

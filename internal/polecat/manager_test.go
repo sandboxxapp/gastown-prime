@@ -965,11 +965,11 @@ func TestAddWithOptions_NoPrimeMDCreatedLocally(t *testing.T) {
 		t.Fatalf("AddWithOptions: %v", err)
 	}
 
-	// With per-rig beads (no redirect), polecats work in their own .beads/ context.
-	// The redirect file should NOT exist — polecats no longer get redirects.
+	// With flat_bead_namespace, polecats get a redirect to the town-level .beads/.
+	// This ensures gt exit and other commands route to the central store.
 	worktreeRedirect := filepath.Join(polecat.ClonePath, ".beads", "redirect")
-	if _, err := os.Stat(worktreeRedirect); err == nil {
-		t.Errorf("redirect file should NOT exist (polecats use per-rig beads): %s", worktreeRedirect)
+	if _, err := os.Stat(worktreeRedirect); os.IsNotExist(err) {
+		t.Errorf("redirect file should exist (polecats redirect to town-level beads): %s", worktreeRedirect)
 	}
 }
 
