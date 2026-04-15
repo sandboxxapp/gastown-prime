@@ -1599,6 +1599,13 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 		style.PrintWarning("could not re-provision polecat CLAUDE.md on reuse: %v", err)
 	}
 
+	// Re-provision shared beads redirect on reuse. In dispatch-and-kill models,
+	// polecats are reused almost every time. The redirect may point to a stale
+	// rig-level .beads/ instead of the central town-level store.
+	if err := m.setupSharedBeads(clonePath); err != nil {
+		style.PrintWarning("could not re-provision shared beads on reuse: %v", err)
+	}
+
 	// Create fresh branch from start point (branch-only, no worktree add/remove)
 	branchName := m.buildBranchName(name, opts.HookBead)
 	if err := polecatGit.CheckoutNewBranch(branchName, startPoint); err != nil {
