@@ -170,6 +170,20 @@ func runExit(cmd *cobra.Command, args []string) error {
 		} else {
 			fmt.Printf("%s Notes persisted to %s\n", style.Bold.Render("✓"), issueID)
 		}
+		// Write bead notes as a domain note for the archivist_dog to pick up.
+		// The archivist_dog scans rigs/<rig>/domain/notes/*.md on a timer and
+		// dispatches a bridge-local Opus agent to collate findings.
+		if rigName != "" {
+			notesDir := filepath.Join(townRoot, "rigs", rigName, "domain", "notes")
+			if err := os.MkdirAll(notesDir, 0755); err == nil {
+				noteFile := filepath.Join(notesDir, issueID+".md")
+				noteContent := fmt.Sprintf("# %s\n\nSource: polecat exit, bead %s, branch %s\n\n%s\n", issueID, issueID, branch, notes)
+				if err := os.WriteFile(noteFile, []byte(noteContent), 0644); err == nil {
+					fmt.Printf("%s Domain note written for archivist: %s\n", style.Bold.Render("✓"), filepath.Base(noteFile))
+				}
+			}
+		}
+
 		// Close the bead — archivist extracts knowledge later via daemon trigger
 		closeCmd := exec.Command("bd", "close", issueID, "--reason",
 			fmt.Sprintf("Polecat exit: branch %s, rig %s", branch, rigName))

@@ -131,10 +131,11 @@ func (d *Daemon) reapCompletedPolecats() {
 			d.logger.Printf("polecat_reaper: %s/%s: completed (session_killed=%v worktree=%v bead=%s)",
 				r.Rig, r.Polecat, r.SessionKilled, r.WorktreeRemoved, r.BeadID)
 
-			// Trigger archivist extraction if the polecat had a closed bead.
-			if r.BeadID != "" && d.isPatrolActive("archivist") {
-				d.spawnArchivistExtraction(r.Rig, r.BeadID)
-			}
+			// Note: archivist extraction is handled by the archivist_dog patrol
+			// (timer-based, reads domain/notes/*.md files). The reaper no longer
+			// slings archivist polecats — that required child repo worktrees and
+			// bare repos which don't align with our dispatch-and-kill model.
+			// The archivist is a bridge-local Opus agent, not a rig polecat.
 		}
 	}
 }
