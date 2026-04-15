@@ -126,8 +126,6 @@ func upgradeDoctor(townRoot string) upgradeResult {
 	d.Register(doctor.NewClaudeBinaryCheck())
 	d.Register(doctor.NewDoltServerReachableCheck())
 	d.Register(doctor.NewTownGitCheck())
-	d.Register(doctor.NewTownRootBranchCheck())
-	d.Register(doctor.NewPreCheckoutHookCheck())
 	d.Register(doctor.NewClaudeSettingsCheck())
 	d.Register(doctor.NewDaemonCheck())
 	d.Register(doctor.NewTownBeadsConfigCheck())
