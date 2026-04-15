@@ -335,7 +335,13 @@ type Beads struct {
 }
 
 // New creates a new Beads wrapper for the given directory.
+// If BEADS_DIR is set in the environment, it is used as the beads directory
+// override. This ensures polecat worktrees route to the central store instead
+// of discovering stale rig-level .beads/ directories.
 func New(workDir string) *Beads {
+	if envDir := os.Getenv("BEADS_DIR"); envDir != "" {
+		return &Beads{workDir: workDir, beadsDir: envDir}
+	}
 	return &Beads{workDir: workDir}
 }
 
