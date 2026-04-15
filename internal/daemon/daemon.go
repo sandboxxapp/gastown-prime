@@ -1950,12 +1950,21 @@ func (d *Daemon) isRigOperational(rigName string) (bool, string) {
 	// Check rig bead labels (global/synced docked status)
 	// This is the persistent docked state set by 'gt rig dock'
 	//
-	// Auto-detect: only check if the rig has a Dolt database. Per-rig beads
-	// (sbx-gastown-vrb4) means some rigs won't have Dolt — wisp config (above)
-	// is the primary docked/parked signal. Replaces the old flatBeadNamespace flag.
+	// Only check rigs that have their own Dolt database AND where the database
+	// actually connects to the running server. In flat_bead_namespace mode (our
+	// dispatch model), rig-level .beads/ dirs are auto-created by bd but contain
+	// stale Dolt configs that timeout on connection — flooding the log with
+	// "PROJECT IDENTITY MISMATCH" warnings and blocking the heartbeat loop.
+	//
+	// The wisp config check above is the primary docked/parked signal.
+	// The rig bead check below is belt-and-suspenders for per-rig beads setups.
 	rigPath := filepath.Join(d.config.TownRoot, rigName)
 	rigBeadsDir := beads.ResolveBeadsDir(rigPath)
-	if rigHasDoltDB(rigBeadsDir) {
+	// Skip if rigBeadsDir resolves to the town-level .beads/ (flat namespace —
+	// rig bead check would query the central store, which doesn't have per-rig
+	// dock/park beads).
+	townBeadsDir := beads.ResolveBeadsDir(d.config.TownRoot)
+	if rigHasDoltDB(rigBeadsDir) && rigBeadsDir != townBeadsDir {
 		// Try to get prefix from rig config.json, fall back to rigs.json registry
 		var prefix string
 		if rigCfg, err := rig.LoadRigConfig(rigPath); err == nil && rigCfg.Beads != nil {
