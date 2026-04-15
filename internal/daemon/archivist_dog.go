@@ -2,14 +2,11 @@ package daemon
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/steveyegge/gastown/internal/util"
 )
 
 const (
@@ -169,41 +166,13 @@ func (d *Daemon) runArchivistDog() {
 			rn.Rig, len(rn.Files), strings.Join(rn.Files, ", "))
 	}
 
-	// Rate limit: max 1 dispatch per cycle
-	dispatched := false
+	// Surface for mayor: log actionable summary.
+	// The mayor dispatches bridge-local Opus archivists via Agent tool when they
+	// see pending notes. This keeps the mayor in the loop until we need to scale.
+	totalNotes := 0
 	for _, rn := range rigs {
-		if dispatched {
-			break
-		}
-		if !d.archivistCooldowns.canDispatch(rn.Rig) {
-			d.logger.Printf("archivist_dog: %s in cooldown, skipping", rn.Rig)
-			continue
-		}
-
-		d.logger.Printf("archivist_dog: dispatching archivist for %s", rn.Rig)
-		slingCmd := exec.Command("gt", "sling", "mol-archivist-extract", rn.Rig) //nolint:gosec // G204: gt is a trusted internal tool
-		slingCmd.Dir = d.config.TownRoot
-		slingCmd.Env = os.Environ()
-		util.SetDetachedProcessGroup(slingCmd)
-
-		if err := slingCmd.Start(); err != nil {
-			d.logger.Printf("archivist_dog: dispatch failed for %s: %v", rn.Rig, err)
-			continue
-		}
-
-		// Don't wait for sling to complete
-		go func() {
-			_ = slingCmd.Wait()
-		}()
-
-		d.archivistCooldowns.markDispatched(rn.Rig)
-		dispatched = true
-		d.logger.Printf("archivist_dog: dispatched archivist for %s (%d notes)",
-			rn.Rig, len(rn.Files))
+		totalNotes += len(rn.Files)
 	}
-
-	if !dispatched && scanNum%archivistDogDiagEveryN == 1 {
-		d.logger.Printf("archivist_dog: alive (scan #%d, %d rigs with notes, all in cooldown)",
-			scanNum, len(rigs))
-	}
+	d.logger.Printf("archivist_dog: %d note(s) pending across %d rig(s) — mayor dispatch needed",
+		totalNotes, len(rigs))
 }
