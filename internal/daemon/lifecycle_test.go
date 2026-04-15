@@ -574,3 +574,128 @@ func TestGetStartCommand_ClaudeAgentFallsThrough(t *testing.T) {
 		t.Errorf("getStartCommand returned literal TOML start_command verbatim — beacon injection was skipped: %q", startCmd)
 	}
 }
+
+// --- mergeAgentBeadJSON tests (Part 1: --type=agent query results) ---
+
+func TestMergeAgentBeadJSON_EmptyInputs(t *testing.T) {
+	result := mergeAgentBeadJSON(nil, nil)
+	if result != nil {
+		t.Errorf("expected nil for empty inputs, got %s", string(result))
+	}
+}
+
+func TestMergeAgentBeadJSON_IssuesOnly(t *testing.T) {
+	issues := `[{"id":"gt-gastown-polecat-Toast","issue_type":"agent","labels":["gt:agent"],"status":"open"}]`
+	result := mergeAgentBeadJSON(nil, []byte(issues))
+	if result == nil {
+		t.Fatal("expected non-nil result for issues-only input")
+	}
+
+	var entries []map[string]interface{}
+	if err := json.Unmarshal(result, &entries); err != nil {
+		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry, got %d", len(entries))
+	}
+	if entries[0]["id"] != "gt-gastown-polecat-Toast" {
+		t.Errorf("unexpected id: %v", entries[0]["id"])
+	}
+}
+
+func TestMergeAgentBeadJSON_WispsPrecedence(t *testing.T) {
+	wisps := `[{"id":"gt-gastown-polecat-Toast","issue_type":"agent","labels":["gt:agent"],"status":"open","title":"from-wisp"}]`
+	issues := `[{"id":"gt-gastown-polecat-Toast","issue_type":"agent","labels":["gt:agent"],"status":"closed","title":"from-issue"}]`
+	result := mergeAgentBeadJSON([]byte(wisps), []byte(issues))
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+
+	var entries []map[string]interface{}
+	if err := json.Unmarshal(result, &entries); err != nil {
+		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry (deduplicated), got %d", len(entries))
+	}
+	if entries[0]["title"] != "from-wisp" {
+		t.Errorf("expected wisp to take precedence, got title=%v", entries[0]["title"])
+	}
+}
+
+func TestMergeAgentBeadJSON_TypeAgentQueryResults(t *testing.T) {
+	// Simulate results from --type=agent query (the corrected query format)
+	issues := `[
+		{"id":"gt-gastown-polecat-Toast","issue_type":"agent","labels":["gt:agent"],"status":"open","description":"Polecat agent\n\nrole_type: polecat\nrig: sandboxx-backend\nagent_state: working\nhook_bead: sbx-gastown-abc1"},
+		{"id":"gt-gastown-witness","issue_type":"agent","labels":["gt:agent"],"status":"open","description":"Witness agent\n\nrole_type: witness\nrig: sandboxx-backend\nagent_state: running\nhook_bead: null"}
+	]`
+	result := mergeAgentBeadJSON(nil, []byte(issues))
+	if result == nil {
+		t.Fatal("expected non-nil result")
+	}
+
+	var entries []map[string]interface{}
+	if err := json.Unmarshal(result, &entries); err != nil {
+		t.Fatalf("failed to unmarshal result: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 entries, got %d", len(entries))
+	}
+}
+
+// --- hook_bead JSON unmarshaling tests ---
+
+func TestHookBeadJSONUnmarshaling(t *testing.T) {
+	// Simulate the JSON shape returned by bd list --type=agent --json --flat
+	agentJSON := `[{
+		"id": "gt-gastown-polecat-Toast",
+		"issue_type": "agent",
+		"status": "open",
+		"labels": ["gt:agent"],
+		"title": "Polecat Toast",
+		"description": "Polecat Toast\n\nrole_type: polecat\nrig: sandboxx-backend\nagent_state: working\nhook_bead: sbx-gastown-abc1\ncleanup_status: null\nactive_mr: null\nnotification_level: normal"
+	}]`
+
+	type agentEntry struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+
+	var entries []agentEntry
+	if err := json.Unmarshal([]byte(agentJSON), &entries); err != nil {
+		t.Fatalf("failed to unmarshal agent JSON: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+
+	// Use beads.ParseAgentFields to extract hook_bead from description
+	fields := beads.ParseAgentFields(entries[0].Description)
+	if fields.HookBead != "sbx-gastown-abc1" {
+		t.Errorf("expected hook_bead='sbx-gastown-abc1', got %q", fields.HookBead)
+	}
+}
+
+func TestHookBeadJSONUnmarshaling_NullValue(t *testing.T) {
+	agentJSON := `[{
+		"id": "gt-gastown-witness",
+		"issue_type": "agent",
+		"status": "open",
+		"description": "Witness\n\nrole_type: witness\nrig: sandboxx-backend\nagent_state: running\nhook_bead: null"
+	}]`
+
+	type agentEntry struct {
+		ID          string `json:"id"`
+		Description string `json:"description"`
+	}
+
+	var entries []agentEntry
+	if err := json.Unmarshal([]byte(agentJSON), &entries); err != nil {
+		t.Fatalf("failed to unmarshal: %v", err)
+	}
+
+	fields := beads.ParseAgentFields(entries[0].Description)
+	if fields.HookBead != "" {
+		t.Errorf("expected empty hook_bead for null, got %q", fields.HookBead)
+	}
+}

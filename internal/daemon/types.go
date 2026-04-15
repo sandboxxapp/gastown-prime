@@ -135,6 +135,7 @@ type PatrolsConfig struct {
 	PolecatReaper          *PolecatReaperConfig           `json:"polecat_reaper,omitempty"`
 	ForemanDispatcher      *ForemanDispatcherConfig       `json:"foreman_dispatcher,omitempty"`
 	Archivist              *PatrolConfig                  `json:"archivist,omitempty"`
+	ArchivistDog           *ArchivistDogConfig            `json:"archivist_dog,omitempty"`
 }
 
 // DoltRemotesConfig holds configuration for the dolt_remotes patrol.
@@ -335,6 +336,12 @@ func IsPatrolEnabled(config *DaemonPatrolConfig, patrol string) bool {
 			return false
 		}
 		return config.Patrols.Archivist.Enabled
+	}
+	if patrol == "archivist_dog" {
+		if config == nil || config.Patrols == nil || config.Patrols.ArchivistDog == nil {
+			return false
+		}
+		return config.Patrols.ArchivistDog.Enabled
 	}
 
 	if config == nil || config.Patrols == nil {

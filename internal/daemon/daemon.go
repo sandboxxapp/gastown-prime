@@ -120,6 +120,9 @@ type Daemon struct {
 	// triggers a zombie restart, debouncing transient gaps during handoffs.
 	// Only accessed from heartbeat loop goroutine - no sync needed.
 	mayorZombieCount int
+
+	// archivistCooldowns tracks per-rig dispatch cooldowns for the archivist_dog patrol.
+	archivistCooldowns *archivistDogCooldowns
 }
 
 // sessionDeath records a detected session death for mass death analysis.
@@ -306,19 +309,20 @@ func New(config *Config) (*Daemon, error) {
 	}
 
 	return &Daemon{
-		config:          config,
-		patrolConfig:    patrolConfig,
-		disabledPatrols: disabledPatrols,
-		tmux:            tmux.NewTmux(),
-		logger:          logger,
-		ctx:             ctx,
-		cancel:          cancel,
-		doltServer:      doltServer,
-		gtPath:          gtPath,
-		bdPath:          bdPath,
-		restartTracker:  restartTracker,
-		otelProvider:    otelProvider,
-		metrics:         dm,
+		config:             config,
+		patrolConfig:       patrolConfig,
+		disabledPatrols:    disabledPatrols,
+		tmux:               tmux.NewTmux(),
+		logger:             logger,
+		ctx:                ctx,
+		cancel:             cancel,
+		doltServer:         doltServer,
+		gtPath:             gtPath,
+		bdPath:             bdPath,
+		restartTracker:     restartTracker,
+		otelProvider:       otelProvider,
+		metrics:            dm,
+		archivistCooldowns: newArchivistDogCooldowns(),
 	}, nil
 }
 
@@ -542,6 +546,18 @@ func (d *Daemon) Run() (err error) {
 		d.logger.Printf("Foreman dispatcher ticker started (interval %v)", interval)
 	}
 
+	// Start archivist dog ticker if configured.
+	// Scans rigs for unprocessed domain notes and dispatches archivists.
+	var archivistDogTicker *time.Ticker
+	var archivistDogChan <-chan time.Time
+	if d.isPatrolActive("archivist_dog") {
+		interval := archivistDogInterval(d.patrolConfig)
+		archivistDogTicker = time.NewTicker(interval)
+		archivistDogChan = archivistDogTicker.C
+		defer archivistDogTicker.Stop()
+		d.logger.Printf("Archivist dog ticker started (interval %v)", interval)
+	}
+
 	// Start doctor dog ticker if configured.
 	// Health monitor: TCP check, latency, DB count, gc, zombie detection, backup/disk checks.
 	var doctorDogTicker *time.Ticker
@@ -698,6 +714,13 @@ func (d *Daemon) Run() (err error) {
 			// and nudges existing foreman sessions or spawns new ones.
 			if !d.isShutdownInProgress() {
 				d.dispatchForemen()
+			}
+
+		case <-archivistDogChan:
+			// Archivist dog — scans rigs for unprocessed domain notes and dispatches
+			// archivists to extract knowledge from them.
+			if !d.isShutdownInProgress() {
+				d.runArchivistDog()
 			}
 
 		case <-doctorDogChan:

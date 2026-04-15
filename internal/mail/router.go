@@ -340,7 +340,7 @@ func parseGroupAddress(address string) *ParsedGroup {
 	}
 }
 
-// agentBead represents an agent bead as returned by bd list --label=gt:agent.
+// agentBead represents an agent bead as returned by bd list --type=agent.
 type agentBead struct {
 	ID          string   `json:"id"`
 	Title       string   `json:"title"`
@@ -744,7 +744,7 @@ func (r *Router) queryAgents(descContains string) []*agentBead {
 // queryAgentsInDir queries agent beads in a specific beads directory with optional description filtering.
 // Queries both the issues and wisps tables, merging results.
 func (r *Router) queryAgentsInDir(beadsDir, descContains string) ([]*agentBead, error) {
-	args := []string{"list", "--label=gt:agent", "--json", "--flat", "--limit=0"}
+	args := []string{"list", "--type=agent", "--json", "--flat", "--limit=0"}
 
 	if descContains != "" {
 		args = append(args, "--desc-contains="+descContains)
