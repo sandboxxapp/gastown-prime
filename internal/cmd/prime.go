@@ -9,7 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -493,12 +492,10 @@ func outputRoleContext(ctx RoleContext) (string, error) {
 func runPrimeExternalTools(cwd string) {
 	if primeDryRun {
 		explain(true, "bd prime: skipped in dry-run mode")
-		explain(true, "memory injection: skipped in dry-run mode")
 		explain(true, "gt mail check --inject: skipped in dry-run mode")
 		return
 	}
 	runBdPrime(cwd)
-	runMemoryInject()
 	runMailCheckInject(cwd)
 }
 
@@ -526,68 +523,6 @@ func runBdPrime(workDir string) {
 	if output != "" {
 		fmt.Println()
 		fmt.Println(output)
-	}
-}
-
-// memoryTypeLabels maps type keys to human-readable section headers for prime injection.
-var memoryTypeLabels = map[string]string{
-	"feedback":  "Behavioral Rules (from user feedback)",
-	"user":      "User Context",
-	"project":   "Project Context",
-	"reference":  "Reference Links",
-	"general":   "General",
-}
-
-// runMemoryInject loads memories from beads kv and outputs them during prime.
-// Memories are grouped by type and ordered by priority (feedback first).
-func runMemoryInject() {
-	kvs, err := bdKvListJSON()
-	if err != nil {
-		return // Silently skip if kv list fails
-	}
-
-	// Group memories by type
-	type mem struct {
-		shortKey string
-		value    string
-	}
-	grouped := make(map[string][]mem)
-
-	for k, v := range kvs {
-		if !strings.HasPrefix(k, memoryKeyPrefix) {
-			continue
-		}
-		memType, shortKey := parseMemoryKey(k)
-		grouped[memType] = append(grouped[memType], mem{shortKey: shortKey, value: v})
-	}
-
-	if len(grouped) == 0 {
-		return
-	}
-
-	// Sort each group by key
-	for t := range grouped {
-		sort.Slice(grouped[t], func(i, j int) bool {
-			return grouped[t][i].shortKey < grouped[t][j].shortKey
-		})
-	}
-
-	fmt.Println()
-	fmt.Println("# Agent Memories")
-
-	for _, t := range memoryTypeOrder {
-		mems, ok := grouped[t]
-		if !ok || len(mems) == 0 {
-			continue
-		}
-		label := memoryTypeLabels[t]
-		if label == "" {
-			label = t
-		}
-		fmt.Printf("\n## %s\n\n", label)
-		for _, m := range mems {
-			fmt.Printf("- **%s**: %s\n", m.shortKey, m.value)
-		}
 	}
 }
 
