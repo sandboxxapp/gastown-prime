@@ -663,11 +663,10 @@ func TestFindRigBeadsDir(t *testing.T) {
 		t.Errorf("otherrig beads dir = %q, want %q", dir, rigBeads)
 	}
 
-	// Test rig with neither directory existing — should return rig-root path
+	// Test rig with neither directory existing — should return empty (no auto-create)
 	neitherRig := "newrig"
-	expectedRigRoot := filepath.Join(townRoot, neitherRig, ".beads")
-	if dir := FindRigBeadsDir(townRoot, neitherRig); dir != expectedRigRoot {
-		t.Errorf("newrig (neither exists) beads dir = %q, want %q (rig-root path)", dir, expectedRigRoot)
+	if dir := FindRigBeadsDir(townRoot, neitherRig); dir != "" {
+		t.Errorf("newrig (neither exists) beads dir = %q, want empty (no auto-create)", dir)
 	}
 }
 

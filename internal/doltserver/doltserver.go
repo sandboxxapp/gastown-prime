@@ -3245,8 +3245,11 @@ func FindRigBeadsDir(townRoot, rigName string) string {
 		return rigBeads
 	}
 
-	// Neither exists; return rig-root path (consistent with FindOrCreateRigBeadsDir)
-	return rigBeads
+	// Neither exists — rig has no beads store. Return empty so callers skip it.
+	// In flat_bead_namespace mode, per-rig stores don't exist; all beads route
+	// to the town-level .beads/. Returning the path here would cause callers
+	// to auto-create empty .beads/ dirs on every daemon startup.
+	return ""
 }
 
 // FindOrCreateRigBeadsDir atomically resolves and ensures the .beads directory
