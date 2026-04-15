@@ -79,6 +79,21 @@ func runExit(cmd *cobra.Command, args []string) error {
 		issueID = parseBranchName(branch).Issue
 	}
 
+	// Fallback: query for hooked beads assigned to this agent.
+	// Modern polecat branches (polecat/<worker>-<timestamp>) don't embed the
+	// issue ID, so parseBranchName returns "". Query beads directly for
+	// status=hooked + assignee — same pattern gt done uses (hq-l6mm5).
+	if issueID == "" {
+		sender := detectSender()
+		if sender != "" {
+			bd := beads.New(cwd)
+			if hookIssue := findHookedBeadForAgent(bd, sender); hookIssue != "" {
+				issueID = hookIssue
+				fmt.Printf("%s Issue resolved from hooked bead: %s\n", style.Bold.Render("✓"), issueID)
+			}
+		}
+	}
+
 	// Determine rig name
 	rigName := os.Getenv("GT_RIG")
 	if rigName == "" {

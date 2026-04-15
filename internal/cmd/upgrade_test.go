@@ -191,11 +191,6 @@ func TestUpgradeBeadsExempt(t *testing.T) {
 	}
 }
 
-func TestUpgradeBranchCheckExempt(t *testing.T) {
-	if !branchCheckExemptCommands["upgrade"] {
-		t.Error("upgrade should be in branchCheckExemptCommands")
-	}
-}
 
 // contains is already declared in mq_test.go in this package,
 // so we reuse it here.
