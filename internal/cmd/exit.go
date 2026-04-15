@@ -3,16 +3,17 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"os/exec"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/git"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/templates"
+	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/util"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
@@ -173,10 +174,32 @@ func runExit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s No issue ID detected — skipping bead update\n", style.Dim.Render("○"))
 	}
 
-	// 4. EXIT
-	fmt.Printf("\n%s Work saved. Exiting — daemon reaper handles cleanup.\n", style.Bold.Render("✓"))
+	// 4. SELF-TERMINATE
+	fmt.Printf("\n%s Work saved. Session terminating in 3s — daemon reaper handles cleanup.\n", style.Bold.Render("✓"))
 
-	// Signal to Claude Code to exit the session
-	// gt exit returns 0 — the polecat template tells the agent to run /exit after
+	// Kill our own tmux session after a grace period so output reaches logs.
+	// In dispatch-and-kill, polecats don't transition to idle — they die.
+	if rigName != "" {
+		polecatName := os.Getenv("GT_POLECAT")
+		if polecatName == "" {
+			// Derive from branch: polecat/<name>-<timestamp>
+			parts := strings.Split(branch, "/")
+			if len(parts) >= 2 {
+				namePart := parts[1]
+				if idx := strings.LastIndex(namePart, "-"); idx > 0 {
+					polecatName = namePart[:idx]
+				}
+			}
+		}
+		if polecatName != "" {
+			sessionName := "gt-" + polecatName
+			go func() {
+				time.Sleep(3 * time.Second)
+				t := tmux.NewTmux()
+				_ = t.KillSessionWithProcesses(sessionName)
+			}()
+		}
+	}
+
 	return nil
 }
