@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -176,8 +177,12 @@ func runExit(cmd *cobra.Command, args []string) error {
 		if rigName != "" {
 			notesDir := filepath.Join(townRoot, "rigs", rigName, "domain", "notes")
 			if err := os.MkdirAll(notesDir, 0755); err == nil {
+				// Read the bead's accumulated notes and design fields so the
+				// domain note contains real findings, not just the exit stub.
+				beadNotes, beadDesign := readBeadFields(townRoot, issueID)
+
 				noteFile := filepath.Join(notesDir, issueID+".md")
-				noteContent := fmt.Sprintf("# %s\n\nSource: polecat exit, bead %s, branch %s\n\n%s\n", issueID, issueID, branch, notes)
+				noteContent := buildDomainNote(issueID, branch, beadNotes, beadDesign, notes)
 				if err := os.WriteFile(noteFile, []byte(noteContent), 0644); err == nil {
 					fmt.Printf("%s Domain note written for archivist: %s\n", style.Bold.Render("✓"), filepath.Base(noteFile))
 				}
@@ -227,4 +232,52 @@ func runExit(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// readBeadFields runs `bd show <id> --json` and extracts the notes and design fields.
+func readBeadFields(townRoot, issueID string) (notes, design string) {
+	bdCmd := exec.Command("bd", "show", issueID, "--json")
+	bdCmd.Dir = townRoot
+	bdCmd.Env = append(os.Environ(), "BEADS_DIR="+beads.ResolveBeadsDir(townRoot))
+	out, err := bdCmd.Output()
+	if err != nil || len(out) == 0 {
+		return "", ""
+	}
+
+	// bd show --json returns an array with one element
+	var items []struct {
+		Notes  string `json:"notes"`
+		Design string `json:"design"`
+	}
+	if err := json.Unmarshal(out, &items); err != nil || len(items) == 0 {
+		return "", ""
+	}
+	return items[0].Notes, items[0].Design
+}
+
+// buildDomainNote assembles the domain note markdown from bead fields.
+func buildDomainNote(issueID, branch, beadNotes, beadDesign, exitNotes string) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("# %s\n\nSource: polecat exit, bead %s, branch %s\n", issueID, issueID, branch))
+
+	if beadNotes != "" {
+		b.WriteString("\n## Notes\n\n")
+		b.WriteString(beadNotes)
+		b.WriteString("\n")
+	}
+
+	if beadDesign != "" {
+		b.WriteString("\n## Design\n\n")
+		b.WriteString(beadDesign)
+		b.WriteString("\n")
+	}
+
+	// If neither bead field had content, fall back to the exit notes
+	if beadNotes == "" && beadDesign == "" && exitNotes != "" {
+		b.WriteString("\n")
+		b.WriteString(exitNotes)
+		b.WriteString("\n")
+	}
+
+	return b.String()
 }
