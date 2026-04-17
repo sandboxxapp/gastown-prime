@@ -97,6 +97,139 @@ type SecretsFile struct {
 	GCPProfiles map[string]GCPProfile `json:"gcp_profiles"`
 }
 
+// MCPServerSpec is the upstream MCP server launch spec stored in .mcp-secrets.json.
+// This is the same shape the authz-proxy daemon reads when spawning upstream servers,
+// and matches Claude Code's native .mcp.json entry format.
+type MCPServerSpec struct {
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+}
+
+// LoadMCPServersFromSecrets reads .mcp-secrets.json and returns just the MCP server
+// entries (top-level keys with a "command" field). Non-MCP keys (gcp_profiles) are skipped.
+// Returns an empty map if the file is missing.
+func LoadMCPServersFromSecrets(secretsPath string) (map[string]MCPServerSpec, error) {
+	if secretsPath == "" {
+		return map[string]MCPServerSpec{}, nil
+	}
+	data, err := os.ReadFile(secretsPath) //nolint:gosec // G304: path from config
+	if err != nil {
+		if os.IsNotExist(err) {
+			return map[string]MCPServerSpec{}, nil
+		}
+		return nil, fmt.Errorf("reading secrets file: %w", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("parsing secrets file: %w", err)
+	}
+	servers := make(map[string]MCPServerSpec)
+	for name, entry := range raw {
+		var spec MCPServerSpec
+		if err := json.Unmarshal(entry, &spec); err != nil || spec.Command == "" {
+			continue // non-MCP entries (gcp_profiles, etc.) have no command field
+		}
+		servers[name] = spec
+	}
+	return servers, nil
+}
+
+// ValidateMCPsInSecrets returns an error listing any MCP names that were requested
+// but are not present in the secrets file. Used pre-dispatch to fail fast with an
+// actionable message rather than letting the polecat discover the gap at runtime.
+func ValidateMCPsInSecrets(secretsPath string, names []string) error {
+	if len(names) == 0 {
+		return nil
+	}
+	servers, err := LoadMCPServersFromSecrets(secretsPath)
+	if err != nil {
+		return err
+	}
+	var missing []string
+	for _, spec := range names {
+		n, _, err := ParseMCPPolicy(spec)
+		if err != nil {
+			return err
+		}
+		if _, ok := servers[n]; !ok {
+			missing = append(missing, n)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("MCP server(s) not found in %s: %s (run 'gt mcp sync' to populate from the mayor's MCP config, or 'gt mcp list' to see what's available)", secretsPath, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// WriteMCPServersToSecrets writes the given MCP server entries into .mcp-secrets.json,
+// preserving any existing non-MCP keys (e.g. gcp_profiles). Servers are added/updated
+// by name; servers not in the input map are left untouched unless prune is true.
+// Returns the list of server names that were added or updated.
+func WriteMCPServersToSecrets(secretsPath string, servers map[string]MCPServerSpec, prune bool) ([]string, error) {
+	if secretsPath == "" {
+		return nil, fmt.Errorf("secrets path is empty")
+	}
+
+	// Read existing file if present
+	raw := make(map[string]json.RawMessage)
+	if data, err := os.ReadFile(secretsPath); err == nil { //nolint:gosec // path from config
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return nil, fmt.Errorf("parsing existing secrets file: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return nil, fmt.Errorf("reading existing secrets file: %w", err)
+	}
+
+	// If pruning, drop any existing MCP entries not in the input map
+	if prune {
+		for name, entry := range raw {
+			var spec MCPServerSpec
+			if err := json.Unmarshal(entry, &spec); err == nil && spec.Command != "" {
+				if _, keep := servers[name]; !keep {
+					delete(raw, name)
+				}
+			}
+		}
+	}
+
+	var changed []string
+	for name, spec := range servers {
+		encoded, err := json.Marshal(spec)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling server %q: %w", name, err)
+		}
+		if existing, ok := raw[name]; !ok || !bytesEqualJSON(existing, encoded) {
+			changed = append(changed, name)
+		}
+		raw[name] = encoded
+	}
+
+	out, err := json.MarshalIndent(raw, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshaling secrets file: %w", err)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(secretsPath), 0755); err != nil {
+		return nil, fmt.Errorf("creating secrets dir: %w", err)
+	}
+	if err := os.WriteFile(secretsPath, append(out, '\n'), 0600); err != nil {
+		return nil, fmt.Errorf("writing secrets file: %w", err)
+	}
+	return changed, nil
+}
+
+// bytesEqualJSON compares two JSON byte slices by semantic equality (normalized).
+func bytesEqualJSON(a, b []byte) bool {
+	var va, vb any
+	if json.Unmarshal(a, &va) != nil || json.Unmarshal(b, &vb) != nil {
+		return false
+	}
+	ea, _ := json.Marshal(va)
+	eb, _ := json.Marshal(vb)
+	return string(ea) == string(eb)
+}
+
 // ResolveGCPProfiles reads .mcp-secrets.json and returns the requested GCP profiles.
 func ResolveGCPProfiles(secretsPath string, profileNames []string) (map[string]GCPProfile, error) {
 	if len(profileNames) == 0 {
