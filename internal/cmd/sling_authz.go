@@ -39,6 +39,16 @@ func injectAuthzProxy(townRoot, worktreeRoot, agentID, beadID string, mcpSpecs, 
 		return err
 	}
 
+	// Validate each requested MCP is present in the secrets file before
+	// generating any config. Without this, the polecat gets a .mcp.json that
+	// points at an upstream the daemon can't launch, and the failure is deferred
+	// until the polecat actually calls the MCP.
+	if len(mcpSpecs) > 0 {
+		if err := authzproxy.ValidateMCPsInSecrets(proxyCfg.SecretsPath, mcpSpecs); err != nil {
+			return err
+		}
+	}
+
 	// Parse MCP policy specs
 	mcps := make(map[string]authzproxy.MCPPolicy)
 	var mcpNames []string
