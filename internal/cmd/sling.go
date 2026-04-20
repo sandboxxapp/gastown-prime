@@ -62,6 +62,7 @@ Target Resolution:
 
 Spawning Options (when target is a rig):
   gt sling gp-abc greenplace --create               # Create polecat if missing
+  gt sling gp-abc greenplace --fresh                # Skip idle-polecat reuse, allocate new slot
   gt sling gp-abc greenplace --force                # Ignore unread mail
   gt sling gp-abc greenplace --account work         # Use specific Claude account
 
@@ -137,6 +138,7 @@ var (
 	slingReviewOnly    bool     // --review-only: mark work as review-only (no merge/commit/push)
 	slingMCPs          []string // --mcp: MCP proxy access (name:mode), can be repeated
 	slingGCPs          []string // --gcp: GCP SA impersonation profiles, can be repeated
+	slingFresh         bool     // --fresh: skip idle-polecat reuse, always allocate a new slot
 )
 
 func init() {
@@ -167,6 +169,7 @@ func init() {
 	slingCmd.Flags().BoolVar(&slingReviewOnly, "review-only", false, "Mark work as review-only: assignee evaluates and reports back, must NOT merge/commit/push")
 	slingCmd.Flags().StringArrayVar(&slingMCPs, "mcp", nil, "MCP proxy access (name:mode), can be repeated (e.g., --mcp github:read --mcp linear:read,write)")
 	slingCmd.Flags().StringArrayVar(&slingGCPs, "gcp", nil, "GCP SA impersonation profile, can be repeated (e.g., --gcp terraform-plan)")
+	slingCmd.Flags().BoolVar(&slingFresh, "fresh", false, "Skip idle-polecat reuse; always allocate a new named slot from the namepool")
 
 	slingCmd.AddCommand(slingRespawnResetCmd)
 	rootCmd.AddCommand(slingCmd)
@@ -675,6 +678,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		DryRun:     slingDryRun,
 		Force:      force,
 		Create:     slingCreate,
+		Fresh:      slingFresh,
 		Account:    slingAccount,
 		Agent:      slingAgent,
 		NoBoot:     slingNoBoot,

@@ -94,6 +94,7 @@ func runSlingFormula(ctx context.Context, args []string) error {
 		DryRun:   slingDryRun,
 		Force:    slingForce,
 		Create:   slingCreate,
+		Fresh:    slingFresh,
 		Account:  slingAccount,
 		Agent:    slingAgent,
 		NoBoot:   slingNoBoot,

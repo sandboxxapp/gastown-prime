@@ -56,6 +56,7 @@ type SlingSpawnOptions struct {
 	HookBead   string // Bead ID to set as hook_bead at spawn time (atomic assignment)
 	Agent      string // Agent override for this spawn (e.g., "gemini", "codex", "claude-haiku")
 	BaseBranch string // Override base branch for polecat worktree (e.g., "develop", "release/v2")
+	Fresh      bool   // Skip idle-polecat reuse; always allocate a new named slot from the namepool
 }
 
 // SpawnPolecatForSling creates a fresh polecat and optionally starts its session.
@@ -160,7 +161,15 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 	// Persistent polecat model (gt-4ac): try to reuse an idle polecat first.
 	// Idle polecats have completed their work but kept their sandbox (worktree).
 	// Reusing avoids the overhead of creating a new worktree.
-	idlePolecat, findErr := polecatMgr.FindIdlePolecat()
+	//
+	// --fresh (sbx-gastown-y9x2) bypasses reuse entirely to avoid stale-state
+	// bleed (old bead mappings, worktree residue, namepool stagnation) at the
+	// cost of the ~5s worktree allocation.
+	var idlePolecat *polecat.Polecat
+	var findErr error
+	if !opts.Fresh {
+		idlePolecat, findErr = polecatMgr.FindIdlePolecat()
+	}
 	if findErr == nil && idlePolecat != nil {
 		polecatName := idlePolecat.Name
 		fmt.Printf("Reusing idle polecat: %s\n", polecatName)
