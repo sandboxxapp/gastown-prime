@@ -102,6 +102,7 @@ type ResolveTargetOptions struct {
 	DryRun   bool
 	Force    bool
 	Create   bool
+	Fresh    bool // Skip idle-polecat reuse; always allocate a new slot from the namepool
 	Account  string
 	Agent    string
 	NoBoot   bool
@@ -214,6 +215,7 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 			HookBead:   opts.HookBead,
 			Agent:      opts.Agent,
 			BaseBranch: opts.BaseBranch,
+			Fresh:      opts.Fresh,
 		}
 		spawnInfo, err := spawnPolecatForSling(rigName, spawnOpts)
 		if err != nil {
