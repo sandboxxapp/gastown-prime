@@ -75,6 +75,16 @@ func runExit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot determine current branch: %w", err)
 	}
 
+	// Track exit-path outcomes so we can emit a structured event on the way
+	// out. The deacon polls daemon/polecat-events.jsonl for wake activity;
+	// the mayor is paged via `gt escalate` when success=false.
+	exitSuccess := true
+	var exitFailures []string
+	recordFailure := func(reason string) {
+		exitSuccess = false
+		exitFailures = append(exitFailures, reason)
+	}
+
 	// Auto-detect issue from branch name
 	issueID := exitIssue
 	if issueID == "" {
@@ -143,6 +153,7 @@ func runExit(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s Pushing %d commit(s) to origin...\n", style.Bold.Render("→"), aheadCount)
 		if pushErr := g.Push("origin", "HEAD", false); pushErr != nil {
 			style.PrintWarning("push failed: %v — work is committed locally but not on remote", pushErr)
+			recordFailure(fmt.Sprintf("push failed: %v", pushErr))
 		} else {
 			fmt.Printf("%s Branch pushed\n", style.Bold.Render("✓"))
 		}
@@ -201,6 +212,7 @@ func runExit(cmd *cobra.Command, args []string) error {
 		util.SetDetachedProcessGroup(closeCmd)
 		if err := closeCmd.Run(); err != nil {
 			style.PrintWarning("could not close %s: %v", issueID, err)
+			recordFailure(fmt.Sprintf("bead close failed: %v", err))
 		} else {
 			fmt.Printf("%s Bead %s closed\n", style.Bold.Render("✓"), issueID)
 		}
@@ -209,33 +221,49 @@ func runExit(cmd *cobra.Command, args []string) error {
 		nudgeMayor(townRoot, issueID, info.Title, branch)
 	} else {
 		fmt.Printf("%s No issue ID detected — skipping bead update\n", style.Dim.Render("○"))
+		recordFailure("no issue ID detected")
 	}
 
-	// 4. SELF-TERMINATE
+	// Resolve polecat name for the event payload and tmux teardown.
+	polecatName := os.Getenv("GT_POLECAT")
+	if polecatName == "" {
+		// Derive from branch: polecat/<name>-<timestamp>
+		parts := strings.Split(branch, "/")
+		if len(parts) >= 2 {
+			namePart := parts[1]
+			if idx := strings.LastIndex(namePart, "-"); idx > 0 {
+				polecatName = namePart[:idx]
+			}
+		}
+	}
+
+	// 4. EMIT WAKE SIGNAL — appends a JSONL line to daemon/polecat-events.jsonl
+	// (the file the town deacon polls), nudges the deacon as belt-and-suspenders
+	// insurance, and escalates to the mayor on failure paths.
+	reason := strings.Join(exitFailures, "; ")
+	ev := newPolecatExitEvent(rigName, polecatName, issueID, exitSuccess, reason)
+	if werr := writePolecatExitEvent(townRoot, ev); werr != nil {
+		style.PrintWarning("could not write polecat event: %v", werr)
+	} else {
+		fmt.Printf("%s Polecat event emitted (success=%t)\n", style.Bold.Render("✓"), exitSuccess)
+	}
+	signalDeaconOfExit(townRoot, issueID)
+	if !exitSuccess {
+		escalatePolecatExitFailure(townRoot, polecatName, reason)
+	}
+
+	// 5. SELF-TERMINATE
 	fmt.Printf("\n%s Work saved. Session terminating in 3s — daemon reaper handles cleanup.\n", style.Bold.Render("✓"))
 
 	// Kill our own tmux session after a grace period so output reaches logs.
 	// In dispatch-and-kill, polecats don't transition to idle — they die.
-	if rigName != "" {
-		polecatName := os.Getenv("GT_POLECAT")
-		if polecatName == "" {
-			// Derive from branch: polecat/<name>-<timestamp>
-			parts := strings.Split(branch, "/")
-			if len(parts) >= 2 {
-				namePart := parts[1]
-				if idx := strings.LastIndex(namePart, "-"); idx > 0 {
-					polecatName = namePart[:idx]
-				}
-			}
-		}
-		if polecatName != "" {
-			sessionName := "gt-" + polecatName
-			go func() {
-				time.Sleep(3 * time.Second)
-				t := tmux.NewTmux()
-				_ = t.KillSessionWithProcesses(sessionName)
-			}()
-		}
+	if rigName != "" && polecatName != "" {
+		sessionName := "gt-" + polecatName
+		go func() {
+			time.Sleep(3 * time.Second)
+			t := tmux.NewTmux()
+			_ = t.KillSessionWithProcesses(sessionName)
+		}()
 	}
 
 	return nil
