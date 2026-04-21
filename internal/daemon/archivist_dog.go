@@ -496,6 +496,25 @@ func renderBeadNotesSection(notes []beadNote) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// archivistClaudeArgs builds argv for the bridge-local archivist invocation.
+//
+// KEY AUTH CONTRACT: NEVER include --bare. The claude CLI documents --bare as
+// "keychain reads are never read; auth is strictly ANTHROPIC_API_KEY". The
+// operator runs Claude Max via OAuth (no API key in env), so --bare = every
+// dispatch fails with "Not logged in · Please run /login" and domain notes
+// pile up indefinitely. Mirrored in rigs/deacon/archivist.py's build_claude_argv.
+//
+// --no-session-persistence keeps the archivist ephemeral — no .jsonl file
+// under ~/.claude/projects/ to reap afterward.
+func archivistClaudeArgs(prompt string) []string {
+	return []string{
+		"-p", prompt,
+		"--allowed-tools", "Read,Write,Edit,Glob,Grep,Bash",
+		"--dangerously-skip-permissions",
+		"--no-session-persistence",
+	}
+}
+
 // dispatchBridgeArchivist spawns a bridge-local archivist agent to process
 // domain notes for a rig. The agent runs in the bridge root (townRoot) with
 // no worktree — it reads/writes rigs/<rig>/domain/ directly.
@@ -512,13 +531,7 @@ func (d *Daemon) dispatchBridgeArchivist(rn rigNotes) error {
 	prompt := fmt.Sprintf(archivistPromptTemplate,
 		rn.Rig, notesDir, domainDir, fileList, beadSection, notesDir)
 
-	args := []string{
-		"-p", prompt,
-		"--allowed-tools", "Read,Write,Edit,Glob,Grep,Bash",
-		"--dangerously-skip-permissions",
-		"--bare",
-	}
-	cmd := exec.Command(agentCmd, args...)
+	cmd := exec.Command(agentCmd, archivistClaudeArgs(prompt)...)
 	cmd.Dir = d.config.TownRoot
 	util.SetDetachedProcessGroup(cmd)
 
@@ -543,13 +556,26 @@ func (d *Daemon) dispatchBridgeArchivist(rn rigNotes) error {
 		return fmt.Errorf("start %s: %w", agentCmd, err)
 	}
 
+	// Register with the archivist-pid registry so util.CleanupOrphanedClaudeProcesses
+	// and CleanupZombieClaudeProcesses exempt this pid from signaling. Without
+	// this the archivist gets SIGTERMed 60s after dispatch (TTY "?" + cwd in
+	// town root matches the orphan filter).
+	pid := cmd.Process.Pid
+	townRoot := d.config.TownRoot
+	if err := util.RegisterArchivist(townRoot, pid); err != nil {
+		d.logger.Printf("archivist_dog: warning: register pid %d: %v", pid, err)
+	}
+
 	d.logger.Printf("archivist_dog: dispatched bridge-local archivist for %s (pid=%d, file-notes=%d, bead-notes=%d)",
-		rn.Rig, cmd.Process.Pid, len(rn.Files), len(rn.BeadNotes))
+		rn.Rig, pid, len(rn.Files), len(rn.BeadNotes))
 
 	// Don't wait — let the archivist run in the background.
-	// Goroutine reaps the process and closes the log file.
+	// Goroutine reaps the process, closes the log file, and removes the pid marker.
 	go func() {
 		_ = cmd.Wait()
+		if err := util.UnregisterArchivist(townRoot, pid); err != nil {
+			d.logger.Printf("archivist_dog: warning: unregister pid %d: %v", pid, err)
+		}
 		if logFile != nil {
 			logFile.Close()
 		}

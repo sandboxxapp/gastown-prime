@@ -505,6 +505,13 @@ func FindOrphanedClaudeProcesses() ([]OrphanedProcess, error) {
 			continue
 		}
 
+		// Skip bridge-local archivists that registered themselves on spawn.
+		// Dispatchers (archivist_dog, deacon archivist.py) write
+		// <townRoot>/daemon/archivist-pids/<pid> and remove it on exit.
+		if IsRegisteredArchivist(townRoot, pid) {
+			continue
+		}
+
 		orphans = append(orphans, OrphanedProcess{
 			PID:      pid,
 			Cmd:      cmd,
@@ -621,6 +628,12 @@ func FindZombieClaudeProcesses() ([]ZombieProcess, error) {
 		// running in repos outside ~/gt/.
 		townRoot := resolveTownRoot(pid)
 		if townRoot == "" {
+			continue
+		}
+
+		// Skip bridge-local archivists that registered themselves on spawn.
+		// See FindOrphanedClaudeProcesses for the registry protocol.
+		if IsRegisteredArchivist(townRoot, pid) {
 			continue
 		}
 

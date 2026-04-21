@@ -535,6 +535,64 @@ func TestRenderBeadNotesSection_WithNotes(t *testing.T) {
 	}
 }
 
+// TestArchivistClaudeArgs_NoBare is a regression test for sbx-gastown-mbr0.
+// --bare forces claude to skip OAuth/keychain, so archivist dispatches under
+// Claude Max (no API key in env) silently fail with "Not logged in". The
+// argv builder must never include it.
+func TestArchivistClaudeArgs_NoBare(t *testing.T) {
+	args := archivistClaudeArgs("ignored-prompt")
+	for _, a := range args {
+		if a == "--bare" {
+			t.Fatal("--bare must not appear — disables OAuth/keychain, breaks archivist auth on Claude Max")
+		}
+	}
+}
+
+func TestArchivistClaudeArgs_IncludesRequiredFlags(t *testing.T) {
+	args := archivistClaudeArgs("my-prompt")
+	got := map[string]bool{}
+	for _, a := range args {
+		got[a] = true
+	}
+	for _, want := range []string{
+		"-p",
+		"--allowed-tools",
+		"--dangerously-skip-permissions",
+		"--no-session-persistence",
+	} {
+		if !got[want] {
+			t.Errorf("missing flag %q in argv %v", want, args)
+		}
+	}
+}
+
+func TestArchivistClaudeArgs_PromptAppearsOnceAfterDashP(t *testing.T) {
+	args := archivistClaudeArgs("unique-prompt-marker")
+	idx := -1
+	for i, a := range args {
+		if a == "-p" {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 || idx+1 >= len(args) {
+		t.Fatalf("-p not followed by a value in %v", args)
+	}
+	if args[idx+1] != "unique-prompt-marker" {
+		t.Errorf("expected prompt immediately after -p, got %q", args[idx+1])
+	}
+	// Prompt must appear exactly once (not duplicated as separate arg).
+	count := 0
+	for _, a := range args {
+		if a == "unique-prompt-marker" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected prompt once in argv, got %d: %v", count, args)
+	}
+}
+
 // TestDispatchPromptIncludesBeadNotes is an integration-style test that verifies
 // the dispatch path stitches inline bead notes into the prompt the archivist
 // agent will receive. It mimics the polecat -> bead-note -> archivist flow:
