@@ -149,6 +149,12 @@ type NamePool struct {
 	// MaxSize is the maximum number of themed names before overflow.
 	MaxSize int `json:"max_size"`
 
+	// NextIndex is the round-robin cursor into the theme list — the position
+	// where the next allocation scan starts. Persisted so the rotation survives
+	// across polecat churn; without it, a freed name at index 0 gets re-picked
+	// immediately on the next sling and we cluster on the head of the list.
+	NextIndex int `json:"next_index"`
+
 	// stateFile is the path to persist pool state.
 	stateFile string
 
@@ -264,6 +270,10 @@ func (p *NamePool) Load() error {
 	if loaded.MaxSize > 0 {
 		p.MaxSize = loaded.MaxSize
 	}
+	// NextIndex: absent field in old state files unmarshals to 0, which is
+	// equivalent to the pre-cursor behavior on first allocation. The cursor
+	// starts advancing from there.
+	p.NextIndex = loaded.NextIndex
 
 	return nil
 }
@@ -274,6 +284,7 @@ type namePoolState struct {
 	RigName      string `json:"rig_name"`
 	OverflowNext int    `json:"overflow_next"`
 	MaxSize      int    `json:"max_size"`
+	NextIndex    int    `json:"next_index"`
 }
 
 // Save persists the pool state to disk using atomic write.
@@ -293,26 +304,41 @@ func (p *NamePool) Save() error {
 		RigName:      p.RigName,
 		OverflowNext: p.OverflowNext,
 		MaxSize:      p.MaxSize,
+		NextIndex:    p.NextIndex,
 	}
 
 	return util.AtomicWriteJSON(p.stateFile, state)
 }
 
-// Allocate returns a name from the pool.
-// It prefers names in order from the theme list, and falls back to overflow names
-// when the pool is exhausted.
+// Allocate returns a name from the pool using a round-robin scan from NextIndex.
+// Without the cursor, freed names at the head of the list get re-picked
+// immediately on the next allocation, clustering polecats on the first few
+// theme entries (see sbx-gastown-uzrj). Falls back to overflow names when
+// every themed slot is in use.
 func (p *NamePool) Allocate() (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	names := p.getNames()
 
-	// Try to find first available name from the theme
-	for i := 0; i < len(names) && i < p.MaxSize; i++ {
-		name := names[i]
-		if !p.InUse[name] {
-			p.InUse[name] = true
-			return name, nil
+	limit := len(names)
+	if p.MaxSize < limit {
+		limit = p.MaxSize
+	}
+
+	if limit > 0 {
+		start := p.NextIndex % limit
+		if start < 0 {
+			start = 0
+		}
+		for i := 0; i < limit; i++ {
+			idx := (start + i) % limit
+			name := names[idx]
+			if !p.InUse[name] {
+				p.InUse[name] = true
+				p.NextIndex = (idx + 1) % limit
+				return name, nil
+			}
 		}
 	}
 
@@ -450,6 +476,9 @@ func (p *NamePool) SetTheme(theme string) error {
 	p.Theme = theme
 	p.InUse = newInUse
 	p.CustomNames = nil
+	// Theme change invalidates the round-robin cursor: the old index points
+	// into a different name list, which would skew allocation or run off the end.
+	p.NextIndex = 0
 	// Grow the pool to accommodate the combined name set so we don't immediately
 	// fall through to overflow numbering after switching to a larger theme.
 	if len(newNames) > p.MaxSize {
@@ -853,4 +882,5 @@ func (p *NamePool) Reset() {
 
 	p.InUse = make(map[string]bool)
 	p.OverflowNext = p.MaxSize + 1
+	p.NextIndex = 0
 }
