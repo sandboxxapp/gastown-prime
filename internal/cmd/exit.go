@@ -12,9 +12,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
 	"github.com/steveyegge/gastown/internal/git"
+	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/templates"
-	"github.com/steveyegge/gastown/internal/tmux"
 	"github.com/steveyegge/gastown/internal/util"
 	"github.com/steveyegge/gastown/internal/workspace"
 )
@@ -253,20 +253,48 @@ func runExit(cmd *cobra.Command, args []string) error {
 	}
 
 	// 5. SELF-TERMINATE
-	fmt.Printf("\n%s Work saved. Session terminating in 3s — daemon reaper handles cleanup.\n", style.Bold.Render("✓"))
-
-	// Kill our own tmux session after a grace period so output reaches logs.
-	// In dispatch-and-kill, polecats don't transition to idle — they die.
+	// Spawn a detached child (`gt _reap-session`) to kill this polecat's tmux
+	// session after a 3-second grace period. Must be a separate process, not an
+	// in-process goroutine — gt exits as soon as runExit returns, and a
+	// goroutine scheduled for +3s would die with it (sbx-gastown-xpuv).
 	if rigName != "" && polecatName != "" {
-		sessionName := "gt-" + polecatName
-		go func() {
-			time.Sleep(3 * time.Second)
-			t := tmux.NewTmux()
-			_ = t.KillSessionWithProcesses(sessionName)
-		}()
+		sessionName := session.PolecatSessionName(session.PrefixFor(rigName), polecatName)
+		if err := scheduleSelfTerminate(townRoot, sessionName, 3*time.Second); err != nil {
+			style.PrintWarning("could not schedule self-terminate: %v", err)
+		} else {
+			fmt.Printf("\n%s Work saved. Session terminating in 3s.\n", style.Bold.Render("✓"))
+		}
+	} else {
+		fmt.Printf("\n%s Work saved.\n", style.Bold.Render("✓"))
 	}
 
 	return nil
+}
+
+// scheduleSelfTerminate is the seam used by gt exit to schedule its own tmux
+// session teardown. Replaceable in tests so we don't spawn real subprocesses.
+var scheduleSelfTerminate = defaultScheduleSelfTerminate
+
+// defaultScheduleSelfTerminate launches a detached `gt _reap-session` child
+// that outlives this process. The child sleeps for `delay`, then kills the
+// named tmux session on the town socket configured by InitRegistry.
+func defaultScheduleSelfTerminate(townRoot, sessionName string, delay time.Duration) error {
+	gtBin, err := os.Executable()
+	if err != nil || gtBin == "" {
+		gtBin = "gt"
+	}
+	cmd := exec.Command(gtBin, "_reap-session",
+		"--session", sessionName,
+		"--delay", delay.String())
+	cmd.Dir = townRoot
+	cmd.Env = os.Environ()
+	// Detach from gt's stdio and session so the child survives gt's exit and
+	// the tmux pane's controlling-terminal teardown.
+	cmd.Stdin = nil
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	util.SetDaemonProcessGroup(cmd)
+	return cmd.Start()
 }
 
 // exitBeadInfo holds fields extracted from bd show --json for exit processing.
