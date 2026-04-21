@@ -390,6 +390,10 @@ func runNamepoolReset(cmd *cobra.Command, args []string) error {
 }
 
 // detectCurrentRigWithPath determines the rig name and path from cwd.
+//
+// It uses workspace.FindRigFromCwd, which walks up looking for a rig.json
+// marker (handles the rigs/<rig>/ layout) and falls back to path parsing for
+// legacy layouts without markers.
 func detectCurrentRigWithPath() (string, string) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -401,19 +405,12 @@ func detectCurrentRigWithPath() (string, string) {
 		return "", ""
 	}
 
-	// Get path relative to town root
-	rel, err := filepath.Rel(townRoot, cwd)
-	if err != nil {
+	name, path := workspace.FindRigFromCwd(cwd, townRoot)
+	// Mayor and deacon are roles at the town level, not rigs.
+	if name == constants.RoleMayor || name == constants.RoleDeacon {
 		return "", ""
 	}
-
-	// Extract first path component (rig name)
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) > 0 && parts[0] != "." && parts[0] != constants.RoleMayor && parts[0] != constants.RoleDeacon {
-		return parts[0], filepath.Join(townRoot, parts[0])
-	}
-
-	return "", ""
+	return name, path
 }
 
 func runNamepoolCreate(cmd *cobra.Command, args []string) error {

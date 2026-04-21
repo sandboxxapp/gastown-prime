@@ -11,30 +11,23 @@ import (
 	"github.com/steveyegge/gastown/internal/rig"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/tmux"
+	"github.com/steveyegge/gastown/internal/workspace"
 )
 
 // inferRigFromCwd tries to determine the rig from the current directory.
+// Walks up looking for a rig.json marker (new rigs/<rig>/ layout) before
+// falling back to path-component parsing for legacy layouts.
 func inferRigFromCwd(townRoot string) (string, error) {
 	cwd, err := filepath.Abs(".")
 	if err != nil {
 		return "", err
 	}
 
-	// Check if cwd is within a rig
-	rel, err := filepath.Rel(townRoot, cwd)
-	if err != nil {
-		return "", fmt.Errorf("not in workspace")
+	name, _ := workspace.FindRigFromCwd(cwd, townRoot)
+	if name == "" {
+		return "", fmt.Errorf("could not infer rig from current directory")
 	}
-
-	// Normalize and split path - first component is the rig name
-	rel = filepath.ToSlash(rel)
-	parts := strings.Split(rel, "/")
-
-	if len(parts) > 0 && parts[0] != "" && parts[0] != "." {
-		return parts[0], nil
-	}
-
-	return "", fmt.Errorf("could not infer rig from current directory")
+	return name, nil
 }
 
 // inferRigFromCrewName scans all rigs in the town root for a crew member
