@@ -109,12 +109,7 @@ func runExit(cmd *cobra.Command, args []string) error {
 	// Determine rig name
 	rigName := os.Getenv("GT_RIG")
 	if rigName == "" {
-		if rel, err := filepath.Rel(townRoot, cwd); err == nil {
-			parts := strings.Split(rel, string(filepath.Separator))
-			if len(parts) > 0 {
-				rigName = parts[0]
-			}
-		}
+		rigName, _ = workspace.FindRigFromCwd(cwd, townRoot)
 	}
 
 	// 1. AUTO-COMMIT SAFETY NET

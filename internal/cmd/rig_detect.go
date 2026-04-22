@@ -84,26 +84,25 @@ func runRigDetect(cmd *cobra.Command, args []string) error {
 }
 
 func detectRigFromPath(townRoot, absPath string) string {
-	rel, err := filepath.Rel(townRoot, absPath)
-	if err != nil || strings.HasPrefix(rel, "..") {
+	name, rigPath := workspace.FindRigFromCwd(absPath, townRoot)
+	if name == "" {
 		return ""
 	}
 
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) == 0 || parts[0] == "." {
-		return ""
-	}
-
-	candidateRig := parts[0]
-
-	switch candidateRig {
+	switch name {
 	case constants.RoleMayor, constants.RoleDeacon, ".beads", ".claude", ".git", "plugins":
 		return ""
 	}
 
-	rigConfigPath := filepath.Join(townRoot, candidateRig, "config.json")
-	if _, err := os.Stat(rigConfigPath); err == nil {
-		return candidateRig
+	// Accept as a rig if the directory has either a rig.json marker (handled
+	// by FindRigFromCwd) or a config.json. FindRigFromCwd prefers rig.json,
+	// so if it returned a name, either the marker exists or we're in a legacy
+	// layout — in both cases, config.json is a reasonable secondary signal.
+	if _, err := os.Stat(filepath.Join(rigPath, "rig.json")); err == nil {
+		return name
+	}
+	if _, err := os.Stat(filepath.Join(rigPath, "config.json")); err == nil {
+		return name
 	}
 
 	return ""

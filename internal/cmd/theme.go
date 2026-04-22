@@ -252,20 +252,11 @@ func detectCurrentRig() string {
 		return ""
 	}
 
-	// Get path relative to town root
-	rel, err := filepath.Rel(townRoot, cwd)
-	if err != nil {
+	name, _ := workspace.FindRigFromCwd(cwd, townRoot)
+	if name == constants.RoleMayor || name == constants.RoleDeacon {
 		return ""
 	}
-
-	// Extract first path component (rig name)
-	// Patterns: <rig>/..., mayor/..., deacon/...
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) > 0 && parts[0] != "." && parts[0] != constants.RoleMayor && parts[0] != constants.RoleDeacon {
-		return parts[0]
-	}
-
-	return ""
+	return name
 }
 
 func describeRigTheme(rigName string) string {
