@@ -45,7 +45,6 @@ func TestNamePool_Release(t *testing.T) {
 
 	pool := NewNamePoolWithConfig(tmpDir, "testrig", "mad-max", nil, DefaultPoolSize)
 
-	// Allocate first two
 	name1, _ := pool.Allocate()
 	name2, _ := pool.Allocate()
 
@@ -53,17 +52,24 @@ func TestNamePool_Release(t *testing.T) {
 		t.Fatalf("unexpected allocations: %s, %s", name1, name2)
 	}
 
-	// Release first one
 	pool.Release("furiosa")
 
-	// Next allocation should reuse furiosa
+	if pool.ActiveCount() != 1 {
+		t.Errorf("expected 1 active after release, got %d", pool.ActiveCount())
+	}
+
+	// Round-robin: next allocation advances past furiosa rather than re-picking
+	// the head of the list — that's the whole point of sbx-gastown-uzrj.
 	name, _ := pool.Allocate()
-	if name != "furiosa" {
-		t.Errorf("expected furiosa to be reused, got %s", name)
+	if name == "furiosa" {
+		t.Errorf("expected round-robin to skip just-released head name, got furiosa")
+	}
+	if name != "slit" {
+		t.Errorf("expected slit (cursor at index 2 after furiosa+nux), got %s", name)
 	}
 }
 
-func TestNamePool_PrefersOrder(t *testing.T) {
+func TestNamePool_RoundRobinRotation(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "namepool-test-*")
 	if err != nil {
 		t.Fatal(err)
@@ -72,25 +78,54 @@ func TestNamePool_PrefersOrder(t *testing.T) {
 
 	pool := NewNamePoolWithConfig(tmpDir, "testrig", "mad-max", nil, DefaultPoolSize)
 
-	// Allocate first 5
-	for i := 0; i < 5; i++ {
-		pool.Allocate()
+	// Simulate the bug repro: allocate, release, re-allocate three times.
+	// Before the cursor fix every iteration returned "furiosa".
+	seen := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		name, err := pool.Allocate()
+		if err != nil {
+			t.Fatalf("Allocate %d error: %v", i, err)
+		}
+		seen = append(seen, name)
+		pool.Release(name)
 	}
 
-	// Release slit and furiosa
-	pool.Release("slit")
-	pool.Release("furiosa")
+	unique := make(map[string]bool)
+	for _, n := range seen {
+		unique[n] = true
+	}
+	if len(unique) != 3 {
+		t.Errorf("expected 3 distinct names from round-robin, got %v", seen)
+	}
 
-	// Next allocation should be furiosa (first in theme order)
+	expected := []string{"furiosa", "nux", "slit"}
+	for i, want := range expected {
+		if seen[i] != want {
+			t.Errorf("allocation %d: expected %s, got %s", i, want, seen[i])
+		}
+	}
+}
+
+func TestNamePool_RoundRobinWrapsBackAfterCycle(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "namepool-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// Small pool to make cycling cheap to assert.
+	pool := NewNamePoolWithConfig(tmpDir, "testrig", "mad-max", nil, 4)
+
+	// Drive the cursor a full lap, releasing each name so the pool stays
+	// empty. After a full rotation, the next allocation returns to the head.
+	for i := 0; i < 4; i++ {
+		name, _ := pool.Allocate()
+		pool.Release(name)
+	}
+
 	name, _ := pool.Allocate()
 	if name != "furiosa" {
-		t.Errorf("expected furiosa (first in order), got %s", name)
-	}
-
-	// Next should be slit
-	name, _ = pool.Allocate()
-	if name != "slit" {
-		t.Errorf("expected slit, got %s", name)
+		t.Errorf("expected cursor to wrap to furiosa after full cycle, got %s", name)
 	}
 }
 
@@ -201,6 +236,94 @@ func TestNamePool_SaveLoad(t *testing.T) {
 
 	if overflowName2 != "5" {
 		t.Errorf("expected 5 (OverflowNext persisted), got %s", overflowName2)
+	}
+}
+
+func TestNamePool_CursorPersisted(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "namepool-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	pool := NewNamePoolWithConfig(tmpDir, "testrig", "mad-max", nil, DefaultPoolSize)
+
+	// Advance cursor by allocating and releasing two names.
+	n1, _ := pool.Allocate()
+	n2, _ := pool.Allocate()
+	pool.Release(n1)
+	pool.Release(n2)
+
+	if err := pool.Save(); err != nil {
+		t.Fatalf("Save error: %v", err)
+	}
+
+	// Load into a fresh pool — the cursor should survive so we pick up where
+	// we left off rather than starting over at furiosa.
+	pool2 := NewNamePoolWithConfig(tmpDir, "testrig", "mad-max", nil, DefaultPoolSize)
+	if err := pool2.Load(); err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	name, _ := pool2.Allocate()
+	if name != "slit" {
+		t.Errorf("expected slit (cursor persisted at index 2), got %s", name)
+	}
+}
+
+func TestNamePool_LoadOldStateWithoutCursor(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "namepool-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	// Simulate a state file written before the cursor field existed.
+	stateDir := filepath.Join(tmpDir, ".runtime")
+	if err := os.MkdirAll(stateDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{"rig_name":"testrig","overflow_next":51,"max_size":50}`
+	if err := os.WriteFile(filepath.Join(stateDir, "namepool-state.json"), []byte(legacy), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	pool := NewNamePoolWithConfig(tmpDir, "testrig", "mad-max", nil, DefaultPoolSize)
+	if err := pool.Load(); err != nil {
+		t.Fatalf("Load error: %v", err)
+	}
+
+	if pool.NextIndex != 0 {
+		t.Errorf("expected NextIndex=0 when missing from state, got %d", pool.NextIndex)
+	}
+
+	// First allocation after loading legacy state behaves as before (head).
+	name, _ := pool.Allocate()
+	if name != "furiosa" {
+		t.Errorf("expected furiosa on first legacy-load allocation, got %s", name)
+	}
+}
+
+func TestNamePool_CursorDoesNotBreakOverflow(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "namepool-test-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(tmpDir) }()
+
+	pool := NewNamePoolWithConfig(tmpDir, "gastown", "mad-max", nil, 3)
+
+	// Fill the pool and force overflow. The cursor should not interfere.
+	for i := 0; i < 3; i++ {
+		pool.Allocate()
+	}
+	overflow, _ := pool.Allocate()
+	if overflow != "4" {
+		t.Errorf("expected overflow name 4, got %s", overflow)
+	}
+	overflow, _ = pool.Allocate()
+	if overflow != "5" {
+		t.Errorf("expected overflow name 5, got %s", overflow)
 	}
 }
 
