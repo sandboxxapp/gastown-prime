@@ -496,7 +496,16 @@ func renderBeadNotesSection(notes []beadNote) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// archivistModel is the claude model used for bridge-local archivists.
+// Archivists reason about domain taxonomy and reconcile notes into curated
+// docs — a research-shaped task. Mirrors rigs/deacon/archivist.py's DEFAULT_MODEL.
+const archivistModel = "opus"
+
 // archivistClaudeArgs builds argv for the bridge-local archivist invocation.
+// The prompt is NOT in argv — it is sourced from stdin (see dispatchBridgeArchivist,
+// which connects a prompt file as the child's stdin fd). Keeping the prompt off
+// argv sidesteps ARG_MAX on long rig-notes payloads and matches the Python
+// archivist's invocation shape.
 //
 // KEY AUTH CONTRACT: NEVER include --bare. The claude CLI documents --bare as
 // "keychain reads are never read; auth is strictly ANTHROPIC_API_KEY". The
@@ -506,13 +515,39 @@ func renderBeadNotesSection(notes []beadNote) string {
 //
 // --no-session-persistence keeps the archivist ephemeral — no .jsonl file
 // under ~/.claude/projects/ to reap afterward.
-func archivistClaudeArgs(prompt string) []string {
+func archivistClaudeArgs() []string {
 	return []string{
-		"-p", prompt,
+		"-p",                    // print / headless; reads prompt from stdin
+		"--model", archivistModel,
 		"--allowed-tools", "Read,Write,Edit,Glob,Grep,Bash",
 		"--dangerously-skip-permissions",
 		"--no-session-persistence",
 	}
+}
+
+// archivistPromptDir is where bridge-local archivist prompts are staged as
+// seekable files, so the subprocess can read them via a real stdin fd rather
+// than an anonymous pipe. Pipe-fd stdin has been observed to drop silently
+// under some claude CLI versions; a regular file avoids that class of bug.
+func archivistPromptDir(townRoot string) string {
+	return filepath.Join(townRoot, "daemon", "archivist-prompts")
+}
+
+// writeArchivistPromptFile stages the prompt in archivistPromptDir and returns
+// the absolute path. The caller opens the file and wires it as cmd.Stdin; the
+// reap goroutine removes it after the subprocess exits.
+func writeArchivistPromptFile(townRoot, rig, prompt string) (string, error) {
+	dir := archivistPromptDir(townRoot)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", err
+	}
+	ts := time.Now().UTC().Format("20060102T150405Z")
+	name := fmt.Sprintf("%s-%s.md", ts, rig)
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, []byte(prompt), 0644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // dispatchBridgeArchivist spawns a bridge-local archivist agent to process
@@ -531,8 +566,21 @@ func (d *Daemon) dispatchBridgeArchivist(rn rigNotes) error {
 	prompt := fmt.Sprintf(archivistPromptTemplate,
 		rn.Rig, notesDir, domainDir, fileList, beadSection, notesDir)
 
-	cmd := exec.Command(agentCmd, archivistClaudeArgs(prompt)...)
+	// Stage the prompt as a real file so the child reads stdin from a seekable
+	// fd rather than an anonymous pipe. See archivistPromptDir comment.
+	promptPath, err := writeArchivistPromptFile(d.config.TownRoot, rn.Rig, prompt)
+	if err != nil {
+		return fmt.Errorf("write prompt file: %w", err)
+	}
+	promptFile, err := os.Open(promptPath)
+	if err != nil {
+		_ = os.Remove(promptPath)
+		return fmt.Errorf("open prompt file: %w", err)
+	}
+
+	cmd := exec.Command(agentCmd, archivistClaudeArgs()...)
 	cmd.Dir = d.config.TownRoot
+	cmd.Stdin = promptFile
 	util.SetDetachedProcessGroup(cmd)
 
 	// Direct output to a per-rig log file for debugging.
@@ -544,12 +592,15 @@ func (d *Daemon) dispatchBridgeArchivist(rn rigNotes) error {
 		d.logger.Printf("archivist_dog: warning: can't open log %s: %v", logPath, err)
 		// Continue without log capture — dispatch is more important.
 	} else {
-		fmt.Fprintf(logFile, "\n--- archivist dispatch %s ---\n", time.Now().UTC().Format(time.RFC3339))
+		fmt.Fprintf(logFile, "\n--- archivist dispatch %s prompt=%s ---\n",
+			time.Now().UTC().Format(time.RFC3339), promptPath)
 		cmd.Stdout = logFile
 		cmd.Stderr = logFile
 	}
 
 	if err := cmd.Start(); err != nil {
+		promptFile.Close()
+		_ = os.Remove(promptPath)
 		if logFile != nil {
 			logFile.Close()
 		}
@@ -570,9 +621,14 @@ func (d *Daemon) dispatchBridgeArchivist(rn rigNotes) error {
 		rn.Rig, pid, len(rn.Files), len(rn.BeadNotes))
 
 	// Don't wait — let the archivist run in the background.
-	// Goroutine reaps the process, closes the log file, and removes the pid marker.
+	// Goroutine reaps the process, closes the log file, removes the prompt
+	// file, and removes the pid marker.
 	go func() {
 		_ = cmd.Wait()
+		promptFile.Close()
+		if err := os.Remove(promptPath); err != nil && !os.IsNotExist(err) {
+			d.logger.Printf("archivist_dog: warning: remove prompt %s: %v", promptPath, err)
+		}
 		if err := util.UnregisterArchivist(townRoot, pid); err != nil {
 			d.logger.Printf("archivist_dog: warning: unregister pid %d: %v", pid, err)
 		}

@@ -540,7 +540,7 @@ func TestRenderBeadNotesSection_WithNotes(t *testing.T) {
 // Claude Max (no API key in env) silently fail with "Not logged in". The
 // argv builder must never include it.
 func TestArchivistClaudeArgs_NoBare(t *testing.T) {
-	args := archivistClaudeArgs("ignored-prompt")
+	args := archivistClaudeArgs()
 	for _, a := range args {
 		if a == "--bare" {
 			t.Fatal("--bare must not appear — disables OAuth/keychain, breaks archivist auth on Claude Max")
@@ -549,13 +549,14 @@ func TestArchivistClaudeArgs_NoBare(t *testing.T) {
 }
 
 func TestArchivistClaudeArgs_IncludesRequiredFlags(t *testing.T) {
-	args := archivistClaudeArgs("my-prompt")
+	args := archivistClaudeArgs()
 	got := map[string]bool{}
 	for _, a := range args {
 		got[a] = true
 	}
 	for _, want := range []string{
 		"-p",
+		"--model",
 		"--allowed-tools",
 		"--dangerously-skip-permissions",
 		"--no-session-persistence",
@@ -566,30 +567,86 @@ func TestArchivistClaudeArgs_IncludesRequiredFlags(t *testing.T) {
 	}
 }
 
-func TestArchivistClaudeArgs_PromptAppearsOnceAfterDashP(t *testing.T) {
-	args := archivistClaudeArgs("unique-prompt-marker")
+// TestArchivistClaudeArgs_ModelOpus is a regression test for sbx-gastown-nsqp.
+// Archivists reason about domain taxonomy (research role) — the Python analog
+// at rigs/deacon/archivist.py:build_claude_argv pins `--model opus`; the Go
+// path must match.
+func TestArchivistClaudeArgs_ModelOpus(t *testing.T) {
+	args := archivistClaudeArgs()
 	idx := -1
 	for i, a := range args {
-		if a == "-p" {
+		if a == "--model" {
 			idx = i
 			break
 		}
 	}
 	if idx < 0 || idx+1 >= len(args) {
-		t.Fatalf("-p not followed by a value in %v", args)
+		t.Fatalf("--model not followed by a value in %v", args)
 	}
-	if args[idx+1] != "unique-prompt-marker" {
-		t.Errorf("expected prompt immediately after -p, got %q", args[idx+1])
+	if args[idx+1] != "opus" {
+		t.Errorf("expected --model opus, got --model %q", args[idx+1])
 	}
-	// Prompt must appear exactly once (not duplicated as separate arg).
-	count := 0
-	for _, a := range args {
-		if a == "unique-prompt-marker" {
-			count++
+}
+
+// TestArchivistClaudeArgs_PromptNotInArgv guards that the prompt is sourced
+// from stdin (file-based), not argv. A prompt in argv trips ARG_MAX on long
+// rig-notes payloads and was the failure mode sbx-gastown-nsqp targets.
+func TestArchivistClaudeArgs_PromptNotInArgv(t *testing.T) {
+	args := archivistClaudeArgs()
+	// -p must appear as a bare flag; the next arg must be another flag
+	// (starts with "-"), not prompt text.
+	for i, a := range args {
+		if a != "-p" {
+			continue
+		}
+		if i+1 >= len(args) {
+			return // -p is last arg, which is fine
+		}
+		next := args[i+1]
+		if !strings.HasPrefix(next, "-") {
+			t.Errorf("-p must not be followed by a prompt value in argv (got %q); prompt belongs on stdin", next)
 		}
 	}
-	if count != 1 {
-		t.Errorf("expected prompt once in argv, got %d: %v", count, args)
+}
+
+func TestWriteArchivistPromptFile_CreatesDirAndFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	path, err := writeArchivistPromptFile(tmpDir, "backend", "hello prompt body")
+	if err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+	if !strings.HasPrefix(path, filepath.Join(tmpDir, "daemon", "archivist-prompts")) {
+		t.Errorf("prompt file path %q not under daemon/archivist-prompts/", path)
+	}
+	if !strings.Contains(filepath.Base(path), "backend") {
+		t.Errorf("prompt filename %q should include rig name", filepath.Base(path))
+	}
+	if !strings.HasSuffix(path, ".md") {
+		t.Errorf("prompt filename %q should have .md extension", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read failed: %v", err)
+	}
+	if string(data) != "hello prompt body" {
+		t.Errorf("prompt contents mismatch: got %q", string(data))
+	}
+}
+
+func TestWriteArchivistPromptFile_UniquePerCall(t *testing.T) {
+	tmpDir := t.TempDir()
+	p1, err := writeArchivistPromptFile(tmpDir, "backend", "one")
+	if err != nil {
+		t.Fatalf("write 1 failed: %v", err)
+	}
+	// Force a different timestamp-second to guarantee unique name.
+	time.Sleep(1100 * time.Millisecond)
+	p2, err := writeArchivistPromptFile(tmpDir, "backend", "two")
+	if err != nil {
+		t.Fatalf("write 2 failed: %v", err)
+	}
+	if p1 == p2 {
+		t.Errorf("expected unique paths, both are %q", p1)
 	}
 }
 
