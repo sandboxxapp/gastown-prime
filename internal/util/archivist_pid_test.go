@@ -125,3 +125,23 @@ func TestRegisterArchivist_FilenameIsCanonicalDecimal(t *testing.T) {
 		t.Errorf("expected canonical decimal filename %q, err=%v", path, err)
 	}
 }
+
+func TestIsRegisteredArchivist_StalePidfileTreatedAsRegistered(t *testing.T) {
+	// A marker whose pid no longer corresponds to a live process is still
+	// reported as registered. Liveness is not checked at the util layer —
+	// the registry is file-presence semantics, and stale-file cleanup is
+	// the dispatcher's job (rigs/deacon/archivist.py handles the Python
+	// side; Go's archivist_dog unregisters via deferred goroutine on exit).
+	//
+	// Rationale: orphan cleanup reads this to decide which pids to skip.
+	// A stale pid is dead — ps won't list it as a candidate anyway — so
+	// treating it as "registered" is safe.
+	town := t.TempDir()
+	deadPid := 99999999 // well above any realistic live pid
+	if err := RegisterArchivist(town, deadPid); err != nil {
+		t.Fatal(err)
+	}
+	if !IsRegisteredArchivist(town, deadPid) {
+		t.Error("stale pidfile should still report as registered")
+	}
+}

@@ -20,7 +20,10 @@ import (
 // minOrphanAge is the minimum age (in seconds) a process must be before
 // we consider it orphaned. This prevents race conditions with newly spawned
 // processes and avoids killing legitimate short-lived subagents.
-const minOrphanAge = 60
+//
+// var (not const) so integration tests can lower the threshold without
+// waiting 60s per case. Production callers never mutate it.
+var minOrphanAge = 60
 
 // buildChildMap builds a parent→children map from a single ps call.
 // This replaces per-PID pgrep calls, reducing O(N) process spawns to O(1).
