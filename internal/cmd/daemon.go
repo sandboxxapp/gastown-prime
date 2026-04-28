@@ -294,6 +294,14 @@ func runDaemonStatus(cmd *cobra.Command, args []string) error {
 				}
 			}
 		}
+
+		// Surface most recent doctor_dog snapshot (latency / orphans / backup age).
+		// The dog writes daemon/doctor.json on each tick; absence is non-fatal.
+		if dstatus, dErr := daemon.LoadDoctorStatus(townRoot); dErr == nil && dstatus != nil {
+			fmt.Printf("  Doctor: %s — %s\n",
+				dstatus.TickAt.Local().Format("15:04:05"),
+				daemon.FormatDoctorStatusLine(dstatus))
+		}
 	} else {
 		fmt.Printf("%s Daemon is %s\n",
 			style.Dim.Render("○"),

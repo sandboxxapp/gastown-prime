@@ -1,10 +1,13 @@
 package daemon
 
 import (
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/steveyegge/gastown/internal/constants"
+	"github.com/steveyegge/gastown/internal/doltserver"
+	"github.com/steveyegge/gastown/internal/health"
 )
 
 // Operational constants — timeouts needed to perform checks.
@@ -117,4 +120,41 @@ func (d *Daemon) runDoctorDog() {
 	}
 
 	d.logger.Printf("doctor_dog: poured %s → %s", constants.MolDogDoctor, mol.rootID)
+
+	// Snapshot lightweight metrics so `gt daemon status` can confirm the dog is
+	// healthy without rerunning probes itself. The molecule above remains the
+	// authoritative artifact for the deacon's deeper analysis.
+	d.snapshotDoctorStatus(port, mol.rootID)
+}
+
+// snapshotDoctorStatus captures latency / orphan-count / backup-age and writes
+// it to daemon/doctor.json. Best-effort — never returns an error.
+func (d *Daemon) snapshotDoctorStatus(port int, molID string) {
+	status := &DoctorStatus{
+		TickAt:    time.Now().UTC(),
+		Interval:  doctorDogInterval(d.patrolConfig).String(),
+		LastMolID: molID,
+	}
+
+	// Latency probe — short timeout so a hung Dolt does not stall the tick.
+	if latency, err := health.LatencyCheck("127.0.0.1", port, 3*time.Second); err == nil {
+		status.LatencyMs = latency.Milliseconds()
+	} else {
+		status.ProbeError = err.Error()
+	}
+
+	// Orphan count — read from disk, no Dolt round-trip required.
+	if orphans, err := doltserver.FindOrphanedDatabases(d.config.TownRoot); err == nil {
+		status.OrphanCount = len(orphans)
+	}
+
+	// Backup freshness — newest file under .dolt-backup/. Zero if missing.
+	backupDir := filepath.Join(d.config.TownRoot, ".dolt-backup")
+	if newest := health.BackupFreshness(backupDir); !newest.IsZero() {
+		status.BackupAgeSec = int64(time.Since(newest).Seconds())
+	}
+
+	if err := SaveDoctorStatus(d.config.TownRoot, status); err != nil {
+		d.logger.Printf("doctor_dog: snapshot save failed (non-fatal): %v", err)
+	}
 }
