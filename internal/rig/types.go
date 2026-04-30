@@ -2,6 +2,8 @@
 package rig
 
 import (
+	"path/filepath"
+
 	"github.com/steveyegge/gastown/internal/config"
 )
 
@@ -100,6 +102,28 @@ func (r *Rig) DefaultBranch() string {
 	}
 	if r.RegistryDefaultBranch != "" {
 		return r.RegistryDefaultBranch
+	}
+	return "main"
+}
+
+// ResolveDefaultBranch returns the configured default branch for a rig, given
+// only the town root and rig name. It performs the same 3-tier resolution as
+// (*Rig).DefaultBranch — rig-level config.json, then registry rigs.json, then
+// "main" — and is intended for callers that don't have a *Rig in hand.
+//
+// Without the registry fallback, gt sling and friends would default to "main"
+// whenever a rig's config.json is missing or empty, even when the registry
+// (mayor/rigs.json) records a different default_branch (sbx-gastown-fb7x).
+func ResolveDefaultBranch(townRoot, rigName string) string {
+	rigPath := filepath.Join(townRoot, rigName)
+	if cfg, err := LoadRigConfig(rigPath); err == nil && cfg.DefaultBranch != "" {
+		return cfg.DefaultBranch
+	}
+	rigsPath := filepath.Join(townRoot, "mayor", "rigs.json")
+	if rigsCfg, err := config.LoadRigsConfig(rigsPath); err == nil {
+		if entry, ok := rigsCfg.Rigs[rigName]; ok && entry.DefaultBranch != "" {
+			return entry.DefaultBranch
+		}
 	}
 	return "main"
 }

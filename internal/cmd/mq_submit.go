@@ -134,11 +134,8 @@ func runMqSubmit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Get configured default branch for this rig
-	defaultBranch := "main" // fallback
-	if rigCfg, err := rig.LoadRigConfig(filepath.Join(townRoot, rigName)); err == nil && rigCfg.DefaultBranch != "" {
-		defaultBranch = rigCfg.DefaultBranch
-	}
+	// Get configured default branch for this rig (3-tier: rig config.json → rigs.json → "main")
+	defaultBranch := rig.ResolveDefaultBranch(townRoot, rigName)
 
 	if branch == defaultBranch || branch == "master" {
 		return fmt.Errorf("cannot submit %s/master branch to merge queue", defaultBranch)

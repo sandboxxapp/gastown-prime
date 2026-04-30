@@ -657,11 +657,8 @@ func runRigAdd(cmd *cobra.Command, args []string) error {
 
 	elapsed := time.Since(startTime)
 
-	// Read default branch from rig config
-	defaultBranch := "main"
-	if rigCfg, err := rig.LoadRigConfig(filepath.Join(townRoot, name)); err == nil && rigCfg.DefaultBranch != "" {
-		defaultBranch = rigCfg.DefaultBranch
-	}
+	// Read default branch from rig config (3-tier: rig config.json → rigs.json → "main")
+	defaultBranch := rig.ResolveDefaultBranch(townRoot, name)
 
 	fmt.Printf("\n%s Rig created in %.1fs\n", style.Success.Render("✓"), elapsed.Seconds())
 	fmt.Printf("\nStructure:\n")
