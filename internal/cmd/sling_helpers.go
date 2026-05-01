@@ -1110,11 +1110,16 @@ func loadRigCommandVars(townRoot, rig string) []string {
 	}
 	var vars []string
 
-	// Load default_branch from rig root config.json (single source of truth per 5ee9abcc).
-	// This sets base_branch for formula instantiation so polecats fork from the right branch.
-	rigCfg, err := rigpkg.LoadRigConfig(filepath.Join(townRoot, rig))
-	if err == nil && rigCfg != nil && rigCfg.DefaultBranch != "" {
-		vars = append(vars, fmt.Sprintf("base_branch=%s", rigCfg.DefaultBranch))
+	// Load default_branch from rig config (3-tier: rig config.json → rigs.json → "main").
+	// Sets base_branch for formula instantiation so polecats fork from the right branch.
+	// Only emit when explicitly configured (rig config.json or rigs.json registry); fall
+	// through to the formula's own default when neither source has a value.
+	if cfg, err := rigpkg.LoadRigConfig(filepath.Join(townRoot, rig)); err == nil && cfg.DefaultBranch != "" {
+		vars = append(vars, fmt.Sprintf("base_branch=%s", cfg.DefaultBranch))
+	} else if rigsCfg, err := config.LoadRigsConfig(filepath.Join(townRoot, "mayor", "rigs.json")); err == nil {
+		if entry, ok := rigsCfg.Rigs[rig]; ok && entry.DefaultBranch != "" {
+			vars = append(vars, fmt.Sprintf("base_branch=%s", entry.DefaultBranch))
+		}
 	}
 
 	// Load repo-sourced settings (floor — committed to git, always present after clone)

@@ -376,12 +376,11 @@ func buildRefineryPatrolVars(ctx RoleContext) []string {
 	// Without this, rigs with no settings/config.json or no merge_queue
 	// section get the formula default ("main") instead of their configured
 	// default_branch.
-	defaultBranch := "main"
-	rigCfg, err := rig.LoadRigConfig(rigPath)
-	if err == nil && rigCfg != nil && rigCfg.DefaultBranch != "" {
-		defaultBranch = rigCfg.DefaultBranch
-	}
+	defaultBranch := rig.ResolveDefaultBranch(ctx.TownRoot, ctx.Rig)
 	vars = append(vars, fmt.Sprintf("target_branch=%s", defaultBranch))
+
+	// rigCfg is used below for the beads-prefix fallback path; load it lazily.
+	rigCfg, _ := rig.LoadRigConfig(rigPath)
 
 	// MQ-specific vars: try settings/config.json first (legacy format), then
 	// fall back to the layered rig config (bead labels / wisp layer).

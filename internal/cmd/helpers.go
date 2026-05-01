@@ -123,11 +123,8 @@ func ensureDefaultBranch(dir, roleName, rigPath string) error {
 		return fmt.Errorf("could not determine current branch: %w", err)
 	}
 
-	// Get configured default branch for this rig
-	defaultBranch := "main" // fallback
-	if rigCfg, err := rig.LoadRigConfig(rigPath); err == nil && rigCfg.DefaultBranch != "" {
-		defaultBranch = rigCfg.DefaultBranch
-	}
+	// Get configured default branch for this rig (3-tier: rig config.json → rigs.json → "main")
+	defaultBranch := rig.ResolveDefaultBranch(filepath.Dir(rigPath), filepath.Base(rigPath))
 
 	if branch == defaultBranch {
 		// Already on default branch — still pull to ensure up-to-date
@@ -164,10 +161,7 @@ func warnIfNotDefaultBranch(dir, roleName, rigPath string) {
 		return
 	}
 
-	defaultBranch := "main"
-	if rigCfg, err := rig.LoadRigConfig(rigPath); err == nil && rigCfg.DefaultBranch != "" {
-		defaultBranch = rigCfg.DefaultBranch
-	}
+	defaultBranch := rig.ResolveDefaultBranch(filepath.Dir(rigPath), filepath.Base(rigPath))
 
 	if branch == defaultBranch {
 		return
