@@ -154,9 +154,10 @@ func outputRoleDirectives(ctx RoleContext, w io.Writer, explainEnabled bool) {
 	fmt.Fprintln(w, content)
 }
 
-// outputDomainDocs loads and emits rig-specific domain documentation.
-// Domain docs live at <townRoot>/<rigName>/domain/ and provide SME-level
-// reference material (data models, API patterns, gotchas) to polecats.
+// outputDomainDocs emits a lightweight table of contents for the rig's
+// domain library. Polecats read individual docs on demand via the Read
+// tool or `gt domain read <relpath>` rather than receiving the entire
+// content blob at prime time (cuts ~360KB → <5KB for mature rigs).
 //
 // w and explainEnabled are injected for testability (same pattern as
 // outputRoleDirectives).
@@ -167,46 +168,48 @@ func outputDomainDocs(ctx RoleContext, w io.Writer, explainEnabled bool) {
 		}
 	}
 
-	docs := config.LoadDomainDocs(ctx.TownRoot, ctx.Rig)
+	docs := config.LoadDomainDocsTOC(ctx.TownRoot, ctx.Rig)
 	if len(docs) == 0 {
 		explainf("Domain docs: none found for rig %q", ctx.Rig)
 		return
 	}
 
-	explainf("Domain docs: loaded %d files from %s/%s/domain/", len(docs), ctx.TownRoot, ctx.Rig)
+	explainf("Domain docs: indexed %d files from %s/%s/domain/", len(docs), ctx.TownRoot, ctx.Rig)
 
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "## Domain Context (SME Reference)")
+	fmt.Fprintln(w, "## Domain Library (SME Reference)")
 	fmt.Fprintln(w)
-
-	currentCategory := ""
+	fmt.Fprintf(w, "This rig has %d domain docs at `%s/domain/`. Read on demand via the\n",
+		len(docs), ctx.Rig)
+	fmt.Fprintln(w, "Read tool (filesystem) or `gt domain read <relpath>` (renders + freshness).")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "| Path | Topic | Last-touched |")
+	fmt.Fprintln(w, "|------|-------|--------------|")
 	for _, doc := range docs {
-		if doc.Category != "" && doc.Category != currentCategory {
-			currentCategory = doc.Category
-			fmt.Fprintf(w, "### %s\n\n", config.TitleCaseHyphens(currentCategory))
+		summary := doc.Summary
+		if summary == "" {
+			summary = doc.Title
 		}
-
-		if doc.Category == "" {
-			// Top-level doc gets its own h3
-			fmt.Fprintf(w, "### %s\n\n", doc.Title)
-		} else {
-			// Subdirectory doc gets h4 under its category
-			fmt.Fprintf(w, "#### %s\n\n", doc.Title)
+		summary = sanitizeTableCell(summary)
+		lastTouched := doc.LastTouched
+		if lastTouched == "" {
+			lastTouched = "—"
 		}
-		fmt.Fprintln(w, doc.Content)
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, "---")
-		fmt.Fprintln(w)
+		fmt.Fprintf(w, "| `%s` | %s | %s |\n", doc.RelPath, summary, lastTouched)
 	}
 
-	fmt.Fprintln(w, "If you discover domain knowledge during this task that would help future polecats")
-	fmt.Fprintln(w, "(data model relationships, correct field formats, API patterns, gotchas), write it to")
-	fmt.Fprintln(w, "`.bridge/domain_updates.md` using this format:")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "```markdown")
-	fmt.Fprintln(w, "## <topic> — <file hint>")
-	fmt.Fprintln(w, "<what you learned>")
-	fmt.Fprintln(w, "```")
+	fmt.Fprintf(w, "If you discover domain knowledge that would help future polecats, write findings\n")
+	fmt.Fprintf(w, "to `%s/domain/notes/<topic>-<YYYY-MM-DD>.md` — the archivist_dog collates raw\n", ctx.Rig)
+	fmt.Fprintln(w, "notes into the canonical taxonomy.")
+}
+
+// sanitizeTableCell escapes characters that would break a Markdown table cell.
+func sanitizeTableCell(s string) string {
+	s = strings.ReplaceAll(s, "|", `\|`)
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
 }
 
 func outputPrimeContextFallback(ctx RoleContext) {
