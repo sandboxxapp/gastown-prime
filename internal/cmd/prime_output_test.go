@@ -198,14 +198,15 @@ func TestOutputDomainDocs(t *testing.T) {
 		}
 	})
 
-	t.Run("emits domain docs with section header", func(t *testing.T) {
+	t.Run("emits TOC table not full content", func(t *testing.T) {
 		t.Parallel()
 		townRoot := t.TempDir()
 		domainDir := filepath.Join(townRoot, "myrig", "domain")
 		if err := os.MkdirAll(domainDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(domainDir, "auth-flow.md"), []byte("OAuth2 flow details"), 0644); err != nil {
+		body := "# Auth Flow\n\nOAuth2 flow details.\n\n## Deep section\n\nThis paragraph would have been inlined under the old behavior.\n"
+		if err := os.WriteFile(filepath.Join(domainDir, "auth-flow.md"), []byte(body), 0644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -218,28 +219,39 @@ func TestOutputDomainDocs(t *testing.T) {
 		outputDomainDocs(ctx, &buf, false)
 		out := buf.String()
 
-		if !strings.Contains(out, "## Domain Context (SME Reference)") {
-			t.Errorf("expected section header, got: %s", out)
+		if !strings.Contains(out, "## Domain Library (SME Reference)") {
+			t.Errorf("expected library header, got: %s", out)
 		}
-		if !strings.Contains(out, "### Auth Flow") {
-			t.Errorf("expected doc title, got: %s", out)
+		// TOC table headers and entry
+		if !strings.Contains(out, "| Path | Topic | Last-touched |") {
+			t.Errorf("expected TOC table header, got: %s", out)
+		}
+		if !strings.Contains(out, "`auth-flow.md`") {
+			t.Errorf("expected doc path in TOC, got: %s", out)
 		}
 		if !strings.Contains(out, "OAuth2 flow details") {
-			t.Errorf("expected doc content, got: %s", out)
+			t.Errorf("expected summary in TOC, got: %s", out)
 		}
-		if !strings.Contains(out, "domain_updates.md") {
-			t.Errorf("expected domain update instructions, got: %s", out)
+		// Must NOT inline content past the first-paragraph summary
+		if strings.Contains(out, "would have been inlined") {
+			t.Errorf("expected TOC to not inline full body, got: %s", out)
+		}
+		if strings.Contains(out, "Deep section") {
+			t.Errorf("expected TOC to not inline deeper headings, got: %s", out)
+		}
+		if !strings.Contains(out, "gt domain read") {
+			t.Errorf("expected on-demand instructions, got: %s", out)
 		}
 	})
 
-	t.Run("groups subdirectory docs under category", func(t *testing.T) {
+	t.Run("lists subdirectory docs with category in path", func(t *testing.T) {
 		t.Parallel()
 		townRoot := t.TempDir()
 		authDir := filepath.Join(townRoot, "myrig", "domain", "auth")
 		if err := os.MkdirAll(authDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(authDir, "token.md"), []byte("Token docs"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(authDir, "token.md"), []byte("# Token\n\nToken refresh contract.\n"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -252,11 +264,8 @@ func TestOutputDomainDocs(t *testing.T) {
 		outputDomainDocs(ctx, &buf, false)
 		out := buf.String()
 
-		if !strings.Contains(out, "### Auth") {
-			t.Errorf("expected category header '### Auth', got: %s", out)
-		}
-		if !strings.Contains(out, "#### Token") {
-			t.Errorf("expected doc title '#### Token', got: %s", out)
+		if !strings.Contains(out, filepath.Join("auth", "token.md")) {
+			t.Errorf("expected category-prefixed relpath, got: %s", out)
 		}
 	})
 
@@ -267,7 +276,7 @@ func TestOutputDomainDocs(t *testing.T) {
 		if err := os.MkdirAll(domainDir, 0755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(domainDir, "api.md"), []byte("API docs"), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(domainDir, "api.md"), []byte("# API\n\nAPI docs"), 0644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -283,8 +292,36 @@ func TestOutputDomainDocs(t *testing.T) {
 		if !strings.Contains(out, "[EXPLAIN]") {
 			t.Errorf("expected explain output, got: %s", out)
 		}
-		if !strings.Contains(out, "loaded 1 files") {
+		if !strings.Contains(out, "indexed 1 files") {
 			t.Errorf("expected file count in explain, got: %s", out)
+		}
+	})
+
+	t.Run("TOC for 40 docs stays under 5KB", func(t *testing.T) {
+		t.Parallel()
+		townRoot := t.TempDir()
+		domainDir := filepath.Join(townRoot, "myrig", "domain")
+		if err := os.MkdirAll(domainDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		// Simulate a mature rig: 40 docs, each ~9KB of body (typical real size).
+		bigBody := strings.Repeat("This is a long body line that would bloat a polecat's context window.\n", 130)
+		for i := 0; i < 40; i++ {
+			name := filepath.Join(domainDir, "doc-"+string(rune('a'+(i%26)))+string(rune('0'+(i/26)))+".md")
+			if err := os.WriteFile(name, []byte("# Doc\n\n"+bigBody), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		ctx := RoleContext{
+			Role:     RolePolecat,
+			TownRoot: townRoot,
+			Rig:      "myrig",
+		}
+		var buf bytes.Buffer
+		outputDomainDocs(ctx, &buf, false)
+		if buf.Len() >= 5*1024 {
+			t.Errorf("expected TOC <5KB for 40 docs, got %d bytes", buf.Len())
 		}
 	})
 

@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -165,6 +166,103 @@ func TestLoadDomainDocs(t *testing.T) {
 		docs := LoadDomainDocs(townRoot, "myrig")
 		if len(docs) != 1 {
 			t.Fatalf("expected 1 doc, got %d", len(docs))
+		}
+	})
+}
+
+func TestLoadDomainDocsTOC(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns lightweight catalog without content", func(t *testing.T) {
+		t.Parallel()
+		townRoot := t.TempDir()
+		domainDir := filepath.Join(townRoot, "myrig", "domain")
+		if err := os.MkdirAll(domainDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		body := "# Auth Flow\n\nFirebase issues a JWT; backend verifies via google-auth-library.\n"
+		if err := os.WriteFile(filepath.Join(domainDir, "auth.md"), []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		docs := LoadDomainDocsTOC(townRoot, "myrig")
+		if len(docs) != 1 {
+			t.Fatalf("expected 1 doc, got %d", len(docs))
+		}
+		if docs[0].Content != "" {
+			t.Errorf("expected empty Content in TOC variant, got %q", docs[0].Content)
+		}
+		if docs[0].Title != "Auth" {
+			t.Errorf("expected title 'Auth', got %q", docs[0].Title)
+		}
+		if !strings.Contains(docs[0].Summary, "Firebase issues a JWT") {
+			t.Errorf("expected summary to come from first body line, got %q", docs[0].Summary)
+		}
+	})
+
+	t.Run("returns nil when rig empty", func(t *testing.T) {
+		t.Parallel()
+		if docs := LoadDomainDocsTOC(t.TempDir(), ""); docs != nil {
+			t.Errorf("expected nil, got %d docs", len(docs))
+		}
+	})
+}
+
+func TestExtractSummary(t *testing.T) {
+	t.Parallel()
+
+	t.Run("frontmatter summary wins", func(t *testing.T) {
+		t.Parallel()
+		content := "---\nsummary: Token refresh contract for Firebase\nauthor: alice\n---\n\n# Token\n\nDetails here.\n"
+		got := extractSummary(content)
+		if got != "Token refresh contract for Firebase" {
+			t.Errorf("expected frontmatter summary, got %q", got)
+		}
+	})
+
+	t.Run("strips quotes around frontmatter summary", func(t *testing.T) {
+		t.Parallel()
+		content := "---\nsummary: \"Quoted summary\"\n---\n\nBody\n"
+		got := extractSummary(content)
+		if got != "Quoted summary" {
+			t.Errorf("expected unquoted summary, got %q", got)
+		}
+	})
+
+	t.Run("falls back to first non-heading line", func(t *testing.T) {
+		t.Parallel()
+		content := "# Title\n\n## Subhead\n\nThe first prose line is the summary.\n"
+		got := extractSummary(content)
+		if got != "The first prose line is the summary." {
+			t.Errorf("got %q", got)
+		}
+	})
+
+	t.Run("skips code fences", func(t *testing.T) {
+		t.Parallel()
+		content := "# Title\n\n```bash\nfoo bar\n```\n\nReal prose here.\n"
+		got := extractSummary(content)
+		if got != "Real prose here." {
+			t.Errorf("got %q", got)
+		}
+	})
+
+	t.Run("empty document returns empty", func(t *testing.T) {
+		t.Parallel()
+		if got := extractSummary(""); got != "" {
+			t.Errorf("expected empty, got %q", got)
+		}
+	})
+
+	t.Run("truncates long summaries", func(t *testing.T) {
+		t.Parallel()
+		long := strings.Repeat("x", 200)
+		got := extractSummary("# T\n\n" + long)
+		if len(got) > 120 {
+			t.Errorf("expected truncation to 120 chars, got %d", len(got))
+		}
+		if !strings.HasSuffix(got, "…") {
+			t.Errorf("expected ellipsis suffix, got %q", got)
 		}
 	})
 }
