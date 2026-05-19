@@ -168,7 +168,7 @@ func runExit(cmd *cobra.Command, args []string) error {
 			notes = fmt.Sprintf("Polecat exit: branch %s pushed. Rig: %s.", branch, rigName)
 		}
 
-		bdCmd := exec.Command("bd", "update", issueID, "--notes", notes)
+		bdCmd := exec.Command("bd", buildExitNotesArgs(issueID, notes)...)
 		bdCmd.Dir = townRoot
 		bdCmd.Env = append(os.Environ(), "BEADS_DIR="+beads.ResolveBeadsDir(townRoot))
 		util.SetDetachedProcessGroup(bdCmd)
@@ -290,6 +290,14 @@ func defaultScheduleSelfTerminate(townRoot, sessionName string, delay time.Durat
 	cmd.Stderr = nil
 	util.SetDaemonProcessGroup(cmd)
 	return cmd.Start()
+}
+
+// buildExitNotesArgs returns the args for the `bd update` invocation that
+// persists the gt-exit boilerplate. We use --append-notes (not --notes) so
+// design checkpoints and findings the polecat persisted earlier in the
+// session are preserved rather than clobbered (sbx-gastown-9tf8).
+func buildExitNotesArgs(issueID, notes string) []string {
+	return []string{"update", issueID, "--append-notes", notes}
 }
 
 // exitBeadInfo holds fields extracted from bd show --json for exit processing.
