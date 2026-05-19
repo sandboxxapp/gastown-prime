@@ -112,6 +112,30 @@ func TestBuildDomainNote_WispNotes(t *testing.T) {
 	}
 }
 
+func TestBuildExitNotesArgs_UsesAppend(t *testing.T) {
+	// Regression: gt exit previously used `bd update --notes <X>` which
+	// OVERWRITES, clobbering rich design/findings notes the polecat persisted
+	// during work (sbx-gastown-9tf8). Must use --append-notes so the
+	// boilerplate epilogue is added to existing content rather than replacing it.
+	args := buildExitNotesArgs("sbx-gastown-abc", "Polecat exit: branch X pushed.")
+
+	want := []string{"update", "sbx-gastown-abc", "--append-notes", "Polecat exit: branch X pushed."}
+	if len(args) != len(want) {
+		t.Fatalf("args length = %d, want %d (args=%v)", len(args), len(want), args)
+	}
+	for i, w := range want {
+		if args[i] != w {
+			t.Errorf("args[%d] = %q, want %q", i, args[i], w)
+		}
+	}
+
+	for _, a := range args {
+		if a == "--notes" {
+			t.Errorf("buildExitNotesArgs must NOT use --notes (clobbers existing); args=%v", args)
+		}
+	}
+}
+
 func TestBuildDomainNote_BackwardCompat(t *testing.T) {
 	// Verify backward compatibility: calling with nil wisps produces same
 	// output as the original function (no wisp section).
