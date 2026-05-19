@@ -300,13 +300,14 @@ func cleanupStaleContexts(townRoot string) {
 	}
 }
 
-// beadStatusInfo holds batch-fetched bead status and title.
+// beadStatusInfo holds batch-fetched bead status, title, and labels.
 type beadStatusInfo struct {
 	Status string
 	Title  string
+	Labels []string
 }
 
-// batchFetchBeadInfoByIDs returns a map of bead ID → status+title for specific beads.
+// batchFetchBeadInfoByIDs returns a map of bead ID → status+title+labels for specific beads.
 // Uses `bd show` with multiple IDs per rig directory instead of fetching all beads.
 // This avoids the O(minutes) latency of `bd list --all --json --limit=0` on large repos.
 func batchFetchBeadInfoByIDs(townRoot string, ids []string) map[string]beadStatusInfo {
@@ -330,13 +331,18 @@ func batchFetchBeadInfoByIDs(townRoot string, ids []string) map[string]beadStatu
 			continue
 		}
 		var items []struct {
-			ID     string `json:"id"`
-			Status string `json:"status"`
-			Title  string `json:"title"`
+			ID     string   `json:"id"`
+			Status string   `json:"status"`
+			Title  string   `json:"title"`
+			Labels []string `json:"labels"`
 		}
 		if err := json.Unmarshal(out, &items); err == nil {
 			for _, item := range items {
-				result[item.ID] = beadStatusInfo{Status: item.Status, Title: item.Title}
+				result[item.ID] = beadStatusInfo{
+					Status: item.Status,
+					Title:  item.Title,
+					Labels: item.Labels,
+				}
 			}
 		}
 	}
@@ -366,6 +372,19 @@ func getReadySlingContexts(townRoot string) ([]capacity.PendingBead, error) {
 	if readyErr != nil {
 		return nil, readyErr
 	}
+
+	// 2b. Batch-fetch work bead labels so we can defensively filter messaging
+	// beads (gt:message / gt:handoff / gt:merge-request) that should never be
+	// handed to a polecat. See gt-el4 / gastownhall/gastown#3800.
+	workBeadIDs := make([]string, 0, len(allContexts))
+	for _, ctx := range allContexts {
+		fields := beads.ParseSlingContextFields(ctx.Description)
+		if fields == nil {
+			continue
+		}
+		workBeadIDs = append(workBeadIDs, fields.WorkBeadID)
+	}
+	workBeadInfo := batchFetchBeadInfoByIDs(townRoot, workBeadIDs)
 
 	// 3. Build PendingBead list — pure filtering, no mutations.
 	// Sort by EnqueuedAt for deterministic deduplication: when concurrent
@@ -407,13 +426,23 @@ func getReadySlingContexts(townRoot string) ([]capacity.PendingBead, error) {
 		}
 		seenWork[fields.WorkBeadID] = true
 
+		// Defensive filter: messaging beads (gt:message / gt:handoff /
+		// gt:merge-request) must never reach a rig polecat. Log the skip so
+		// the gap is observable and operators can chase the upstream cause.
+		workLabels := workBeadInfo[fields.WorkBeadID].Labels
+		if capacity.IsMessagingBead(workLabels) {
+			fmt.Fprintf(os.Stderr, "%s dispatch_skip reason=messaging_label bead=%s labels=%v\n",
+				style.Dim.Render("○"), fields.WorkBeadID, workLabels)
+			continue
+		}
+
 		result = append(result, capacity.PendingBead{
 			ID:          ctx.ID,
 			WorkBeadID:  fields.WorkBeadID,
 			Title:       ctx.Title,
 			TargetRig:   fields.TargetRig,
 			Description: ctx.Description,
-			Labels:      ctx.Labels,
+			Labels:      workLabels,
 			Context:     fields,
 		})
 	}
