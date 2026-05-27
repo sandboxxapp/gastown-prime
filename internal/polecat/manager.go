@@ -1759,29 +1759,65 @@ func (m *Manager) ReconcilePoolWith(namesWithDirs, namesWithSessions []string) {
 	m.cleanupOrphanPolecatState()
 }
 
+// panePIDProber looks up the root process PID of a tmux pane. *tmux.Tmux
+// satisfies this via GetPanePID; abstracting it lets isSessionProcessDead's
+// OS-level liveness guard be unit-tested without a real tmux server.
+type panePIDProber interface {
+	GetPanePID(target string) (string, error)
+}
+
 // isSessionProcessDead checks if a polecat session's agent has exited.
 //
 // Uses heartbeat-based liveness detection (gt-qjtq): checks whether the session's
 // heartbeat file has been updated recently. Polecat sessions touch their heartbeat
 // via gt commands (gt prime, gt hook, bd show, etc.) which run frequently during
-// normal operation. A stale heartbeat indicates the agent is no longer active.
+// normal operation.
 //
-// Falls back to PID signal probing when no heartbeat file exists (backward
-// compatibility for sessions started before heartbeat support was added).
+// A stale heartbeat is necessary but NOT sufficient to declare death (sbx-gastown-vkq1):
+// a heads-down agent doing long gt-silent work (big build, deep thinking, a long
+// single bash call) lets its heartbeat go stale while its process is fully alive.
+// When the heartbeat is stale we therefore confirm with an OS-level probe of the
+// pane process and only treat the session as dead when the process is also gone.
+// This is safe because post-startup sessions disable remain-on-exit (see
+// NewSessionWithCommand), so a cleanly-exited agent's session vanishes entirely
+// and never reaches this branch — only live heads-down panes and startup-crash
+// dead panes do.
+//
+// Falls back to PID probing when no heartbeat file exists (backward compatibility
+// for sessions started before heartbeat support was added).
 //
 // Returns true only when we can confirm the process is dead, not on transient
 // failures (gt-kncti: permission denied false positives).
-func isSessionProcessDead(t *tmux.Tmux, sessionName string, townRoot string) bool {
+func isSessionProcessDead(t panePIDProber, sessionName string, townRoot string) bool {
 	// Primary: heartbeat-based liveness check (gt-qjtq ZFC fix).
 	if townRoot != "" {
 		stale, exists := IsSessionHeartbeatStale(townRoot, sessionName)
 		if exists {
-			return stale
+			if !stale {
+				// Fresh heartbeat — the agent is definitely active.
+				return false
+			}
+			// Stale heartbeat — could be a crashed agent OR a heads-down agent
+			// (sbx-gastown-vkq1). Confirm with an OS-level process probe before
+			// killing: only dead when the pane process is also gone.
+			return isPaneProcessDead(t, sessionName)
 		}
 		// No heartbeat file — fall through to PID-based check for backward compatibility.
 	}
 
 	// Fallback: PID signal probing (legacy, for sessions without heartbeat support).
+	return isPaneProcessDead(t, sessionName)
+}
+
+// isPaneProcessDead probes the OS for the liveness of a tmux pane's root process.
+// Returns true only when the process is confirmably gone. Transient query
+// failures (permission denied, busy server) and a nil prober return false so a
+// future cycle can retry rather than killing a live agent (gt-kncti).
+func isPaneProcessDead(t panePIDProber, sessionName string) bool {
+	if t == nil {
+		// No prober available — cannot confirm death; don't kill.
+		return false
+	}
 	pidStr, err := t.GetPanePID(sessionName)
 	if err != nil {
 		// Tmux query failed — could be permission denied, server busy, etc.

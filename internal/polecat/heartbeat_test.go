@@ -3,7 +3,9 @@ package polecat
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -184,11 +186,19 @@ func TestIsSessionProcessDead_HeartbeatFresh(t *testing.T) {
 	}
 }
 
-func TestIsSessionProcessDead_HeartbeatStale(t *testing.T) {
-	townRoot := t.TempDir()
-	sessionName := "gt-test-hb-dead"
+// fakePanePIDProber is a test double for the pane PID lookup that backs
+// isSessionProcessDead's OS-level liveness guard (sbx-gastown-vkq1).
+type fakePanePIDProber struct {
+	pid string
+}
 
-	// Write a stale heartbeat
+func (f fakePanePIDProber) GetPanePID(string) (string, error) {
+	return f.pid, nil
+}
+
+// writeStaleHeartbeat writes a heartbeat file old enough to be considered stale.
+func writeStaleHeartbeat(t *testing.T, townRoot, sessionName string) {
+	t.Helper()
 	dir := filepath.Join(townRoot, ".runtime", "heartbeats")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
@@ -198,10 +208,67 @@ func TestIsSessionProcessDead_HeartbeatStale(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, sessionName+".json"), data, 0644); err != nil {
 		t.Fatal(err)
 	}
+}
 
-	dead := isSessionProcessDead(nil, sessionName, townRoot)
-	if !dead {
-		t.Error("expected dead=true for session with stale heartbeat")
+// reapedPID starts and immediately reaps a child process, returning its PID.
+// After reaping, the PID refers to no live process, so a Signal(0) liveness
+// probe fails — modelling tmux reporting a dead pane's former PID.
+func reapedPID(t *testing.T) int {
+	t.Helper()
+	cmd := exec.Command("true")
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	pid := cmd.Process.Pid
+	_ = cmd.Wait()
+	return pid
+}
+
+// TestIsSessionProcessDead_StaleHeartbeatLivePane is the regression guard for
+// sbx-gastown-vkq1: a stale heartbeat alone must NOT mark a session dead while
+// its pane process is alive. A heads-down agent doing long gt-silent work (big
+// build, deep thinking) lets its heartbeat go stale though the process is fully
+// alive; the pre-fix code killed it on the next same-rig --fresh dispatch.
+func TestIsSessionProcessDead_StaleHeartbeatLivePane(t *testing.T) {
+	townRoot := t.TempDir()
+	sessionName := "stf-test-stale-live"
+	writeStaleHeartbeat(t, townRoot, sessionName)
+
+	// Pane process is alive — use this test process's own (definitely live) PID.
+	prober := fakePanePIDProber{pid: strconv.Itoa(os.Getpid())}
+
+	if isSessionProcessDead(prober, sessionName, townRoot) {
+		t.Error("expected alive (dead=false): stale heartbeat but pane process is alive")
+	}
+}
+
+// TestIsSessionProcessDead_StaleHeartbeatDeadPane verifies that a session IS
+// declared dead when the heartbeat is stale AND the pane process is gone (e.g. a
+// startup-crash dead pane). This preserves the cleanup that gt-qjtq's heartbeat
+// check was meant to provide.
+func TestIsSessionProcessDead_StaleHeartbeatDeadPane(t *testing.T) {
+	townRoot := t.TempDir()
+	sessionName := "stf-test-stale-dead"
+	writeStaleHeartbeat(t, townRoot, sessionName)
+
+	// Pane process is gone — reuse a reaped child's now-dead PID.
+	prober := fakePanePIDProber{pid: strconv.Itoa(reapedPID(t))}
+
+	if !isSessionProcessDead(prober, sessionName, townRoot) {
+		t.Error("expected dead=true: stale heartbeat and pane process gone")
+	}
+}
+
+// TestIsSessionProcessDead_StaleHeartbeatNoProber verifies the conservative
+// fallback: with a stale heartbeat but no tmux prober available, death cannot be
+// confirmed, so the session is treated as alive rather than killed (gt-kncti).
+func TestIsSessionProcessDead_StaleHeartbeatNoProber(t *testing.T) {
+	townRoot := t.TempDir()
+	sessionName := "stf-test-stale-noprober"
+	writeStaleHeartbeat(t, townRoot, sessionName)
+
+	if isSessionProcessDead(nil, sessionName, townRoot) {
+		t.Error("expected alive (dead=false): stale heartbeat but no prober to confirm death")
 	}
 }
 
