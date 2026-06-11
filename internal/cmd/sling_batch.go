@@ -158,6 +158,7 @@ func runBatchSling(beadIDs []string, rigName string, townBeadsDir string) error 
 			Mode:             slingMode,
 			MCPs:             slingMCPs,
 			GCPs:             slingGCPs,
+			Secrets:          slingSecrets,
 			SkipCook:         formulaCooked,
 			FormulaFailFatal: false, // Batch: warn + hook raw on formula failure
 			CallerContext:    "batch-sling",

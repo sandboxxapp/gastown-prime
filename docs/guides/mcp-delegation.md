@@ -129,6 +129,52 @@ permission-denied response from the daemon — the call never reaches Vanta.
 | Polecat's write tool returns "blocked by read-only policy" | Dispatched with `:read` instead of `:read,write` | Re-sling with wider scope |
 | `gt mcp list` shows an MCP `SECRETS=yes` but `MAYOR=-` | Secrets file has stale entries | `gt mcp sync --prune` |
 
+## Scoped app/service credentials — `--secrets`
+
+Some tasks need a static **app/service token** (e.g. `COMMUNITY_ADMIN_V2_TOKEN`
+for a Circle admin API call), not an MCP server or a GCP token. Without an
+injection path, the polecat fails (`CircleException: API token not found`) and
+the operator has to run the script by hand. `gt sling --secrets <profile>` closes
+that gap by injecting a **minimal, named set of env vars** into the polecat's
+spawn environment.
+
+Unlike `--gcp` (which mints short-lived tokens through the daemon), `--secrets`
+reads static values from a dotenv-style **source file** — typically the operator's
+`prod.env`, the sanctioned prod-token source — and injects only the named vars.
+
+### Profile config
+
+Add a `secret_profiles` block to the gitignored `.mcp-secrets.json` (sibling to
+`gcp_profiles`). Each profile names a source file and the **minimal** set of vars
+to inject:
+
+```json
+{
+  "secret_profiles": {
+    "community-admin": {
+      "source": "/path/to/sandboxx-backend/prod.env",
+      "vars": ["COMMUNITY_ADMIN_V2_TOKEN", "COMMUNITY_ID", "COMMUNITY_ADMIN_V1_TOKEN"]
+    }
+  }
+}
+```
+
+### Dispatch
+
+```bash
+gt sling sbx-gastown-cglhq gastown-prime --secrets community-admin
+```
+
+The flag is repeatable (`--secrets a --secrets b`) and composes with `--gcp` and
+`--mcp`. At spawn, `gt` resolves the profile, reads the listed vars from `source`,
+and injects them via the same tmux `-e` env path `--gcp` uses. It **fails fast**
+if a listed var is absent from the source.
+
+### Masking
+
+`gt` logs only the **profile name and var NAMES** — never the values. The token
+values exist only in the source file (gitignored) and the polecat's process env.
+
 ## Security boundary
 
 - Polecats never see the mayor's raw upstream credentials. The daemon holds
@@ -139,3 +185,7 @@ permission-denied response from the daemon — the call never reaches Vanta.
 - GCP credentials follow the same pattern via `--gcp <profile>`: the daemon
   mints short-lived impersonated or downscoped tokens; the polecat never
   sees the mayor's ADC.
+- `--secrets <profile>` injects SCOPED SERVICE tokens (e.g. a Circle admin API
+  token), NOT the operator's personal credentials — consistent with polecat-law
+  #4 (no personal creds). The profile config stays gitignored; values are never
+  committed and never logged (only the profile name + var names are echoed).

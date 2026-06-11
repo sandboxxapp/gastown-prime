@@ -17,7 +17,7 @@ func TestParseMCPPolicy(t *testing.T) {
 		{"github:read", "github", "read", false},
 		{"linear:read,write", "linear", "read,write", false},
 		{"vanta:write", "vanta", "write", false},
-		{"github", "github", "read", false},     // default mode
+		{"github", "github", "read", false},      // default mode
 		{"context7:", "context7", "read", false}, // empty mode = default
 		{"", "", "", true},                       // empty spec
 		{":read", "", "", true},                  // empty name
@@ -191,6 +191,166 @@ func TestMCPToolPermissions(t *testing.T) {
 	}
 	if perms[1] != "mcp__linear__*" {
 		t.Errorf("perms[1]=%q, want=mcp__linear__*", perms[1])
+	}
+}
+
+func TestResolveSecretProfiles(t *testing.T) {
+	dir := t.TempDir()
+	secretsPath := filepath.Join(dir, ".mcp-secrets.json")
+
+	secrets := SecretsFile{
+		SecretProfiles: map[string]SecretProfile{
+			"community-admin": {
+				Source: "/some/prod.env",
+				Vars:   []string{"COMMUNITY_ADMIN_V2_TOKEN", "COMMUNITY_ID"},
+			},
+		},
+	}
+	data, _ := json.Marshal(secrets)
+	if err := os.WriteFile(secretsPath, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("resolve existing profile", func(t *testing.T) {
+		profiles, err := ResolveSecretProfiles(secretsPath, []string{"community-admin"})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(profiles) != 1 {
+			t.Fatalf("len=%d, want=1", len(profiles))
+		}
+		p := profiles["community-admin"]
+		if p.Source != "/some/prod.env" {
+			t.Errorf("source mismatch: %q", p.Source)
+		}
+		if len(p.Vars) != 2 {
+			t.Errorf("vars len=%d, want=2", len(p.Vars))
+		}
+	})
+
+	t.Run("missing profile", func(t *testing.T) {
+		if _, err := ResolveSecretProfiles(secretsPath, []string{"nope"}); err == nil {
+			t.Fatal("expected error for missing profile")
+		}
+	})
+
+	t.Run("empty profile names", func(t *testing.T) {
+		profiles, err := ResolveSecretProfiles(secretsPath, nil)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if profiles != nil {
+			t.Errorf("expected nil, got %v", profiles)
+		}
+	})
+
+	t.Run("missing secrets path", func(t *testing.T) {
+		if _, err := ResolveSecretProfiles("", []string{"community-admin"}); err == nil {
+			t.Fatal("expected error for empty secrets path")
+		}
+	})
+}
+
+func TestLoadProfileEnv(t *testing.T) {
+	dir := t.TempDir()
+	sourcePath := filepath.Join(dir, "prod.env")
+	content := `# prod credentials
+export COMMUNITY_ADMIN_V2_TOKEN="tok-v2-secret"
+COMMUNITY_ID=12345
+COMMUNITY_ADMIN_V1_TOKEN='tok-v1-secret'
+UNRELATED_VAR=ignore-me
+`
+	if err := os.WriteFile(sourcePath, []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("loads only listed vars", func(t *testing.T) {
+		env, err := LoadProfileEnv("community-admin", SecretProfile{
+			Source: sourcePath,
+			Vars:   []string{"COMMUNITY_ADMIN_V2_TOKEN", "COMMUNITY_ID"},
+		})
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if env["COMMUNITY_ADMIN_V2_TOKEN"] != "tok-v2-secret" {
+			t.Errorf("v2 token mismatch: %q", env["COMMUNITY_ADMIN_V2_TOKEN"])
+		}
+		if env["COMMUNITY_ID"] != "12345" {
+			t.Errorf("community id mismatch: %q", env["COMMUNITY_ID"])
+		}
+		// Vars not in the profile must NOT be injected (minimal set guarantee).
+		if _, ok := env["UNRELATED_VAR"]; ok {
+			t.Error("UNRELATED_VAR leaked — profile must inject only its listed vars")
+		}
+		if _, ok := env["COMMUNITY_ADMIN_V1_TOKEN"]; ok {
+			t.Error("COMMUNITY_ADMIN_V1_TOKEN leaked — not in profile.Vars")
+		}
+	})
+
+	t.Run("missing var in source errors", func(t *testing.T) {
+		_, err := LoadProfileEnv("community-admin", SecretProfile{
+			Source: sourcePath,
+			Vars:   []string{"COMMUNITY_ADMIN_V2_TOKEN", "DOES_NOT_EXIST"},
+		})
+		if err == nil {
+			t.Fatal("expected error when a listed var is absent from source")
+		}
+	})
+
+	t.Run("unreadable source errors", func(t *testing.T) {
+		_, err := LoadProfileEnv("x", SecretProfile{
+			Source: filepath.Join(dir, "no-such-file.env"),
+			Vars:   []string{"FOO"},
+		})
+		if err == nil {
+			t.Fatal("expected error for unreadable source")
+		}
+	})
+
+	t.Run("empty source errors", func(t *testing.T) {
+		if _, err := LoadProfileEnv("x", SecretProfile{Vars: []string{"FOO"}}); err == nil {
+			t.Fatal("expected error for empty source")
+		}
+	})
+
+	t.Run("no vars errors", func(t *testing.T) {
+		if _, err := LoadProfileEnv("x", SecretProfile{Source: sourcePath}); err == nil {
+			t.Fatal("expected error for profile with no vars")
+		}
+	})
+}
+
+func TestParseDotenv(t *testing.T) {
+	content := `# a comment
+export FOO=bar
+QUOTED="has spaces"
+SINGLE='single'
+EMPTY=
+WITH_HASH=value#notacomment
+  SPACED = trimmed
+malformed line with no equals
+=novalue
+`
+	env := ParseDotenv(content)
+
+	cases := map[string]string{
+		"FOO":       "bar",
+		"QUOTED":    "has spaces",
+		"SINGLE":    "single",
+		"EMPTY":     "",
+		"WITH_HASH": "value#notacomment",
+		"SPACED":    "trimmed",
+	}
+	for k, want := range cases {
+		if got, ok := env[k]; !ok || got != want {
+			t.Errorf("%s = %q (ok=%v), want %q", k, got, ok, want)
+		}
+	}
+	if _, ok := env["malformed line with no equals"]; ok {
+		t.Error("malformed line should be skipped")
+	}
+	if _, ok := env[""]; ok {
+		t.Error("empty key should be skipped")
 	}
 }
 

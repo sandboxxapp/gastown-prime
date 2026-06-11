@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/steveyegge/gastown/internal/authzproxy"
 	"github.com/steveyegge/gastown/internal/config"
@@ -170,6 +172,79 @@ func MintGCPToken(townRoot string, gcpProfiles []string) (map[string]string, err
 	fmt.Printf("  %s ADC blocked, gcloud sandboxed to %s\n", style.Dim.Render("→"), tmpDir)
 
 	return env, nil
+}
+
+// ResolveSecretsEnv resolves --secrets profiles into the env vars to inject into
+// the polecat's spawn environment. Returns a nil map when no profiles are
+// requested. Each profile names a minimal set of scoped app/service credentials
+// (e.g. COMMUNITY_ADMIN_V2_TOKEN) sourced from a gitignored dotenv file such as
+// the operator's prod.env. Modeled on MintGCPToken, but for static service tokens
+// rather than minted GCP tokens.
+//
+// MASKING: this function logs only the profile name and the var NAMES — never the
+// values. The caller must not log the returned map either.
+func ResolveSecretsEnv(townRoot string, secretProfiles []string) (map[string]string, error) {
+	if len(secretProfiles) == 0 {
+		return nil, nil
+	}
+
+	settingsPath := config.TownSettingsPath(townRoot)
+	settings, err := config.LoadOrCreateTownSettings(settingsPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading town settings: %w", err)
+	}
+
+	proxyCfg := settings.AuthzProxy
+	if proxyCfg == nil {
+		return nil, fmt.Errorf("authz_proxy not configured (settings/config.json) — needed for secrets_path")
+	}
+
+	profiles, err := authzproxy.ResolveSecretProfiles(proxyCfg.SecretsPath, secretProfiles)
+	if err != nil {
+		return nil, fmt.Errorf("resolving secret profiles: %w", err)
+	}
+	if len(profiles) == 0 {
+		return nil, nil
+	}
+
+	env := make(map[string]string)
+	for name, profile := range profiles {
+		vars, err := authzproxy.LoadProfileEnv(name, profile)
+		if err != nil {
+			return nil, err
+		}
+		// MASK: log only the profile name + var names, never the values.
+		names := make([]string, 0, len(vars))
+		for k := range vars {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		for k, v := range vars {
+			env[k] = v
+		}
+		fmt.Printf("  %s Secrets injected (profile: %s, vars: %s)\n",
+			style.Bold.Render("✓"), name, strings.Join(names, ", "))
+	}
+
+	return env, nil
+}
+
+// mergeEnv returns a map containing all entries from base plus all entries from
+// add (add wins on key collisions). Either argument may be nil. Used to combine
+// GCP token env and scoped-secret env onto a polecat's spawn environment without
+// clobbering one when both flags are present.
+func mergeEnv(base, add map[string]string) map[string]string {
+	if base == nil && add == nil {
+		return nil
+	}
+	out := make(map[string]string, len(base)+len(add))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range add {
+		out[k] = v
+	}
+	return out
 }
 
 // addMCPPermissionsToSettings adds MCP tool permission patterns and enables
