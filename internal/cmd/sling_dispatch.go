@@ -18,27 +18,28 @@ import (
 // reconstructed into a SlingParams and passed to executeSling().
 type SlingParams struct {
 	// What to sling
-	BeadID      string   // Base bead
-	FormulaName string   // Formula to apply ("mol-polecat-work", user formula, or "")
-	RigName     string   // Target rig (always a rig for queue)
+	BeadID      string // Base bead
+	FormulaName string // Formula to apply ("mol-polecat-work", user formula, or "")
+	RigName     string // Target rig (always a rig for queue)
 
 	// CLI flag passthrough
-	Args       string   // --args
-	Vars       []string // --var (key=value pairs)
-	Merge      string   // --merge (convoy strategy)
-	BaseBranch string   // --base-branch
-	Account    string   // --account
-	Agent      string   // --agent
-	NoConvoy   bool     // --no-convoy
-	Owned      bool     // --owned
-	NoMerge    bool     // --no-merge
-	Force      bool     // --force
-	HookRawBead bool    // --hook-raw-bead
-	NoBoot     bool     // --no-boot
-	Mode       string   // --ralph: "" (normal) or "ralph"
-	ReviewOnly bool     // --review-only: review and report back only, no merge/commit/push
-	MCPs       []string // --mcp: MCP proxy access specs (name:mode)
-	GCPs       []string // --gcp: GCP SA impersonation profile names
+	Args        string   // --args
+	Vars        []string // --var (key=value pairs)
+	Merge       string   // --merge (convoy strategy)
+	BaseBranch  string   // --base-branch
+	Account     string   // --account
+	Agent       string   // --agent
+	NoConvoy    bool     // --no-convoy
+	Owned       bool     // --owned
+	NoMerge     bool     // --no-merge
+	Force       bool     // --force
+	HookRawBead bool     // --hook-raw-bead
+	NoBoot      bool     // --no-boot
+	Mode        string   // --ralph: "" (normal) or "ralph"
+	ReviewOnly  bool     // --review-only: review and report back only, no merge/commit/push
+	MCPs        []string // --mcp: MCP proxy access specs (name:mode)
+	GCPs        []string // --gcp: GCP SA impersonation profile names
+	Secrets     []string // --secrets: scoped app/service credential profile names
 
 	// Execution behavior (set by caller, not serialized to queue)
 	SkipCook         bool   // Batch optimization: formula already cooked
@@ -392,6 +393,19 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 	// Update agent bead mode (for stuck detector to identify ralphcats)
 	if params.Mode != "" {
 		updateAgentMode(targetAgent, params.Mode, hookWorkDir, beadsDir)
+	}
+
+	// 10.5: Inject scoped app/service credentials (--secrets) into the spawn env.
+	// Mirrors the runSling single-dispatch path; must run before StartSession so the
+	// env vars reach the polecat via tmux -e flags. Values are masked in logs.
+	if len(params.Secrets) > 0 {
+		secretsEnv, err := ResolveSecretsEnv(townRoot, params.Secrets)
+		if err != nil {
+			fmt.Printf("  %s Secrets injection failed: %v\n", style.Warning.Render("⚠"), err)
+			// Non-fatal: polecat proceeds without the scoped credentials
+		} else if secretsEnv != nil {
+			spawnInfo.extraEnv = mergeEnv(spawnInfo.extraEnv, secretsEnv)
+		}
 	}
 
 	// 11. Start polecat session

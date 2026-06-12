@@ -64,6 +64,7 @@ type ScheduleOptions struct {
 	Ralph       bool     // Ralph Wiggum loop mode
 	MCPs        []string // MCP proxy access specs (name:mode)
 	GCPs        []string // GCP SA impersonation profile names
+	Secrets     []string // Scoped app/service credential profile names (--secrets)
 }
 
 // scheduleBead schedules a bead for deferred dispatch via the capacity scheduler.

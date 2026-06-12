@@ -121,23 +121,24 @@ var (
 	slingHookRawBead bool     // --hook-raw-bead: hook raw bead without default formula (expert mode)
 
 	// Flags migrated for polecat spawning (used by sling for work assignment)
-	slingCreate        bool   // --create: create polecat if it doesn't exist
-	slingForce         bool   // --force: force spawn even if polecat has unread mail
-	slingAccount       string // --account: Claude Code account handle to use
-	slingAgent         string // --agent: override runtime agent for this sling/spawn
-	slingNoConvoy      bool   // --no-convoy: skip auto-convoy creation
-	slingOwned         bool   // --owned: mark auto-convoy as caller-managed lifecycle
-	slingNoMerge       bool   // --no-merge: skip merge queue on completion (for upstream PRs/human review)
-	slingMerge         string // --merge: merge strategy for convoy (direct/mr/local)
-	slingNoBoot        bool   // --no-boot: skip wakeRigAgents (avoid witness/refinery boot and lock contention)
-	slingMaxConcurrent int    // --max-concurrent: limit concurrent spawns in batch mode
-	slingBaseBranch    string // --base-branch: override base branch for polecat worktree
-	slingRalph         bool   // --ralph: enable Ralph Wiggum loop mode for multi-step workflows
-	slingFormula       string // --formula: override formula for dispatch (default: mol-polecat-work)
+	slingCreate        bool     // --create: create polecat if it doesn't exist
+	slingForce         bool     // --force: force spawn even if polecat has unread mail
+	slingAccount       string   // --account: Claude Code account handle to use
+	slingAgent         string   // --agent: override runtime agent for this sling/spawn
+	slingNoConvoy      bool     // --no-convoy: skip auto-convoy creation
+	slingOwned         bool     // --owned: mark auto-convoy as caller-managed lifecycle
+	slingNoMerge       bool     // --no-merge: skip merge queue on completion (for upstream PRs/human review)
+	slingMerge         string   // --merge: merge strategy for convoy (direct/mr/local)
+	slingNoBoot        bool     // --no-boot: skip wakeRigAgents (avoid witness/refinery boot and lock contention)
+	slingMaxConcurrent int      // --max-concurrent: limit concurrent spawns in batch mode
+	slingBaseBranch    string   // --base-branch: override base branch for polecat worktree
+	slingRalph         bool     // --ralph: enable Ralph Wiggum loop mode for multi-step workflows
+	slingFormula       string   // --formula: override formula for dispatch (default: mol-polecat-work)
 	slingCrew          string   // --crew: target a crew member in the specified rig
 	slingReviewOnly    bool     // --review-only: mark work as review-only (no merge/commit/push)
 	slingMCPs          []string // --mcp: MCP proxy access (name:mode), can be repeated
 	slingGCPs          []string // --gcp: GCP SA impersonation profiles, can be repeated
+	slingSecrets       []string // --secrets: scoped app/service credential profiles, can be repeated
 	slingFresh         bool     // --fresh: skip idle-polecat reuse, always allocate a new slot
 )
 
@@ -169,6 +170,7 @@ func init() {
 	slingCmd.Flags().BoolVar(&slingReviewOnly, "review-only", false, "Mark work as review-only: assignee evaluates and reports back, must NOT merge/commit/push")
 	slingCmd.Flags().StringArrayVar(&slingMCPs, "mcp", nil, "MCP proxy access (name:mode), can be repeated (e.g., --mcp github:read --mcp linear:read,write)")
 	slingCmd.Flags().StringArrayVar(&slingGCPs, "gcp", nil, "GCP SA impersonation profile, can be repeated (e.g., --gcp terraform-plan)")
+	slingCmd.Flags().StringArrayVar(&slingSecrets, "secrets", nil, "Scoped app/service credential profile to inject as env vars, can be repeated (e.g., --secrets community-admin)")
 	slingCmd.Flags().BoolVar(&slingFresh, "fresh", false, "Skip idle-polecat reuse; always allocate a new named slot from the namepool")
 
 	slingCmd.AddCommand(slingRespawnResetCmd)
@@ -373,8 +375,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 				Agent:       slingAgent,
 				HookRawBead: slingHookRawBead,
 				Ralph:       slingRalph,
-			MCPs:        slingMCPs,
-			GCPs:        slingGCPs,
+				MCPs:        slingMCPs,
+				GCPs:        slingGCPs,
+				Secrets:     slingSecrets,
 			})
 		}
 	}
@@ -410,7 +413,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			DryRun:      slingDryRun,
 			Force:       slingForce,
 			NoMerge:     slingNoMerge,
-				ReviewOnly:  slingReviewOnly,
+			ReviewOnly:  slingReviewOnly,
 			Account:     slingAccount,
 			Agent:       slingAgent,
 			HookRawBead: slingHookRawBead,
@@ -452,8 +455,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 				Agent:       slingAgent,
 				HookRawBead: slingHookRawBead,
 				Ralph:       slingRalph,
-			MCPs:        slingMCPs,
-			GCPs:        slingGCPs,
+				MCPs:        slingMCPs,
+				GCPs:        slingGCPs,
+				Secrets:     slingSecrets,
 			})
 		}
 		// Non-rig target in deferred mode — reject to prevent bypassing capacity control
@@ -1026,7 +1030,20 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			fmt.Printf("%s GCP token minting failed: %v\n", style.Warning.Render("⚠"), err)
 			// Non-fatal: polecat proceeds without GCP access
 		} else if gcpEnv != nil {
-			newPolecatInfo.extraEnv = gcpEnv
+			newPolecatInfo.extraEnv = mergeEnv(newPolecatInfo.extraEnv, gcpEnv)
+		}
+	}
+
+	// Inject scoped app/service credentials (--secrets) into polecat session env.
+	// Unlike GCP, these are static service tokens (e.g. COMMUNITY_ADMIN_V2_TOKEN)
+	// read from a gitignored dotenv source; ResolveSecretsEnv masks values in logs.
+	if newPolecatInfo != nil && len(slingSecrets) > 0 {
+		secretsEnv, err := ResolveSecretsEnv(townRoot, slingSecrets)
+		if err != nil {
+			fmt.Printf("%s Secrets injection failed: %v\n", style.Warning.Render("⚠"), err)
+			// Non-fatal: polecat proceeds without the scoped credentials
+		} else if secretsEnv != nil {
+			newPolecatInfo.extraEnv = mergeEnv(newPolecatInfo.extraEnv, secretsEnv)
 		}
 	}
 

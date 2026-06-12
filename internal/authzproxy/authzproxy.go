@@ -28,16 +28,28 @@ type MCPPolicy struct {
 
 // GCPProfile defines a GCP token minting target.
 type GCPProfile struct {
-	Mode     string   `json:"mode,omitempty"`     // "downscope" or "impersonate" (default)
+	Mode     string   `json:"mode,omitempty"`      // "downscope" or "impersonate" (default)
 	TargetSA string   `json:"target_sa,omitempty"` // Required for impersonate mode
 	Scopes   []string `json:"scopes"`
 	Lifetime string   `json:"lifetime,omitempty"`
-	Project  string   `json:"project,omitempty"`  // GCP project ID for CAB resource scoping
+	Project  string   `json:"project,omitempty"` // GCP project ID for CAB resource scoping
 }
 
 // GCPAuthz defines GCP credential access for a client.
 type GCPAuthz struct {
 	Profiles map[string]GCPProfile `json:"profiles"`
+}
+
+// SecretProfile defines a named set of scoped app/service credentials (env vars)
+// to inject into a polecat's spawn environment. Unlike GCPProfile (which the
+// daemon mints short-lived tokens for), a SecretProfile names env vars and the
+// dotenv-style file they are sourced from — typically the operator's prod.env,
+// the sanctioned prod-token source per the bridge convention. The profile defines
+// the MINIMAL set of vars per task; values are never committed (the secrets file
+// stays gitignored) and never logged (only profile name + var NAMES are echoed).
+type SecretProfile struct {
+	Source string   `json:"source"` // path to a dotenv file holding the values (e.g. prod.env)
+	Vars   []string `json:"vars"`   // env var NAMES to inject (minimal set per task)
 }
 
 // AuthzContext is the authorization context written to mcp-authz.json.
@@ -94,7 +106,8 @@ func ParseMCPPolicy(spec string) (name string, policy MCPPolicy, err error) {
 
 // SecretsFile represents the structure of .mcp-secrets.json (partially).
 type SecretsFile struct {
-	GCPProfiles map[string]GCPProfile `json:"gcp_profiles"`
+	GCPProfiles    map[string]GCPProfile    `json:"gcp_profiles"`
+	SecretProfiles map[string]SecretProfile `json:"secret_profiles"`
 }
 
 // MCPServerSpec is the upstream MCP server launch spec stored in .mcp-secrets.json.
@@ -255,6 +268,98 @@ func ResolveGCPProfiles(secretsPath string, profileNames []string) (map[string]G
 		profiles[name] = p
 	}
 	return profiles, nil
+}
+
+// ResolveSecretProfiles reads .mcp-secrets.json and returns the requested secret
+// profiles. Mirrors ResolveGCPProfiles. Returns nil when no profiles are requested.
+func ResolveSecretProfiles(secretsPath string, profileNames []string) (map[string]SecretProfile, error) {
+	if len(profileNames) == 0 {
+		return nil, nil
+	}
+	if secretsPath == "" {
+		return nil, fmt.Errorf("--secrets requires authz_proxy.secrets_path in town settings")
+	}
+	data, err := os.ReadFile(secretsPath) //nolint:gosec // G304: path from config
+	if err != nil {
+		return nil, fmt.Errorf("reading secrets file: %w", err)
+	}
+	var secrets SecretsFile
+	if err := json.Unmarshal(data, &secrets); err != nil {
+		return nil, fmt.Errorf("parsing secrets file: %w", err)
+	}
+	profiles := make(map[string]SecretProfile, len(profileNames))
+	for _, name := range profileNames {
+		p, ok := secrets.SecretProfiles[name]
+		if !ok {
+			return nil, fmt.Errorf("secret profile %q not found in secrets file %s", name, secretsPath)
+		}
+		profiles[name] = p
+	}
+	return profiles, nil
+}
+
+// LoadProfileEnv reads a secret profile's source dotenv file and returns ONLY the
+// env vars named in profile.Vars. It errors if the source is unreadable or any
+// named var is absent from the source — failing fast at dispatch rather than
+// letting the polecat discover the gap at runtime. Values are never logged here;
+// callers must mask them too (echo only the var NAMES).
+func LoadProfileEnv(profileName string, profile SecretProfile) (map[string]string, error) {
+	if profile.Source == "" {
+		return nil, fmt.Errorf("secret profile %q has no source file", profileName)
+	}
+	if len(profile.Vars) == 0 {
+		return nil, fmt.Errorf("secret profile %q lists no vars to inject", profileName)
+	}
+	data, err := os.ReadFile(profile.Source) //nolint:gosec // G304: path from gitignored secrets config
+	if err != nil {
+		return nil, fmt.Errorf("reading source %s for profile %q: %w", profile.Source, profileName, err)
+	}
+	src := ParseDotenv(string(data))
+	env := make(map[string]string, len(profile.Vars))
+	var missing []string
+	for _, name := range profile.Vars {
+		val, ok := src[name]
+		if !ok {
+			missing = append(missing, name)
+			continue
+		}
+		env[name] = val
+	}
+	if len(missing) > 0 {
+		return nil, fmt.Errorf("secret profile %q: var(s) %s not found in source %s",
+			profileName, strings.Join(missing, ", "), profile.Source)
+	}
+	return env, nil
+}
+
+// ParseDotenv parses dotenv-style content (KEY=VALUE lines) into a map. It skips
+// blank lines and comments, tolerates a leading "export " prefix, and strips a
+// single layer of matching surrounding quotes from values. Inline comments are
+// NOT stripped (a "#" inside an unquoted value is kept) to avoid mangling tokens.
+func ParseDotenv(content string) map[string]string {
+	out := make(map[string]string)
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		eq := strings.IndexByte(line, '=')
+		if eq <= 0 {
+			continue // no key, or no '='
+		}
+		key := strings.TrimSpace(line[:eq])
+		val := strings.TrimSpace(line[eq+1:])
+		if len(val) >= 2 {
+			if (val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'') {
+				val = val[1 : len(val)-1]
+			}
+		}
+		if key != "" {
+			out[key] = val
+		}
+	}
+	return out
 }
 
 // GenerateAuthzFile creates the mcp-authz.json file in the given directory.
