@@ -1,0 +1,30 @@
+#!/bin/bash
+# ABOUTME: Wrapper exposing the bridge's context-db `ctx` CLI to agent sessions.
+# ABOUTME: Resolves ctx under the town root and points it at the context-db API.
+
+# Context-DB dispatch integration (sbx-gastown-g2lww). The real CLI lives in the
+# bridge at <town>/context-db/ctx; this shim makes `ctx query|build|health`
+# invokable from any agent session (it's installed onto ~/bin, which is on PATH).
+#
+# Fail-open: if the context-db isn't provisioned in this town, the shim reports
+# a clear error on invocation and never affects dispatch.
+
+set -e
+
+root="${GT_ROOT:-${GT_ROOT}}"
+if [[ -z "$root" ]]; then
+    echo "ctx: GT_ROOT not set — run from a Gas Town session" >&2
+    exit 127
+fi
+
+ctx_bin="$root/context-db/ctx"
+if [[ ! -f "$ctx_bin" ]]; then
+    echo "ctx: context-db CLI not found at $ctx_bin (is the context-db stack provisioned in this town?)" >&2
+    exit 127
+fi
+
+# The ctx CLI reads CONTEXT_API; honor CONTEXT_DB_URL as the gastown-facing name,
+# falling back to the local container default.
+export CONTEXT_API="${CONTEXT_API:-${CONTEXT_DB_URL:-http://localhost:8080}}"
+
+exec python3 "$ctx_bin" "$@"

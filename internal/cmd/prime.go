@@ -581,6 +581,12 @@ func checkSlungWork(ctx RoleContext, hookedBead *beads.Issue) bool {
 	outputAutonomousDirective(ctx, hookedBead, hasWorkflow)
 	outputHookedBeadDetails(hookedBead, hasWorkflow)
 
+	// Inject the context-db orientation seed (READ path, sbx-gastown-g2lww).
+	// Default-off + fail-open: a no-op unless CONTEXT_DB_URL is set, and it never
+	// blocks or fails dispatch if the db is unreachable. Placed after the bead
+	// details so the retrieved background reads as orientation for the work.
+	outputContextDBSeed(ctx, hookedBead)
+
 	if hasWorkflow {
 		outputMoleculeWorkflow(ctx, attachment)
 	} else {

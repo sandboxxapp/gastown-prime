@@ -392,6 +392,17 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 		"HTTPS_PROXY",
 		"NO_PROXY",
 
+		// Context-DB dispatch integration (READ path, sbx-gastown-g2lww).
+		// CONTEXT_DB_URL is the default-safe gate: when set, gt prime injects an
+		// orientation seed and `ctx query` is usable in-session; when unset the
+		// whole path is inert. CONTEXT_DB_TOP_K tunes the seed size. CONTEXT_API
+		// is the ctx CLI's own var (forwarded when explicitly set; otherwise
+		// derived from CONTEXT_DB_URL below). Forwarding these lets the polecat
+		// session run live `ctx query` against the same endpoint the seed came from.
+		"CONTEXT_DB_URL",
+		"CONTEXT_DB_TOP_K",
+		"CONTEXT_API",
+
 		// mTLS
 		"CLAUDE_CODE_CLIENT_CERT",
 		"CLAUDE_CODE_CLIENT_KEY",
@@ -399,6 +410,17 @@ func AgentEnv(cfg AgentEnvConfig) map[string]string {
 	} {
 		if val := os.Getenv(key); val != "" {
 			env[key] = val
+		}
+	}
+
+	// Bridge CONTEXT_DB_URL → CONTEXT_API for the context-db `ctx` CLI, which
+	// reads CONTEXT_API (context-db/ctx). Only derived when the feature is on
+	// (CONTEXT_DB_URL set) and CONTEXT_API isn't already explicitly provided, so
+	// the unset path stays a no-op. Lets in-session `ctx query` hit the same
+	// endpoint as the gt prime seed.
+	if env["CONTEXT_API"] == "" && os.Getenv("CONTEXT_API") == "" {
+		if url := os.Getenv("CONTEXT_DB_URL"); url != "" {
+			env["CONTEXT_API"] = url
 		}
 	}
 
@@ -535,7 +557,7 @@ func ShellQuote(s string) string {
 }
 
 // psQuote quotes a value for use in PowerShell $env: assignments.
-// Uses single quotes with embedded single quotes doubled ('').
+// Uses single quotes with embedded single quotes doubled (”).
 func psQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "''") + "'"
 }

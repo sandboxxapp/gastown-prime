@@ -612,6 +612,42 @@ func TestEnvToSlice(t *testing.T) {
 
 // Helper functions
 
+// TestAgentEnv_ContextDB covers the context-db dispatch integration env wiring
+// (sbx-gastown-g2lww): CONTEXT_DB_URL/CONTEXT_DB_TOP_K forwarded, CONTEXT_API
+// derived, and the default-off (unset => absent) behavior.
+func TestAgentEnv_ContextDB(t *testing.T) {
+	t.Run("forwarded and derived when set", func(t *testing.T) {
+		t.Setenv("CONTEXT_DB_URL", "http://localhost:8080")
+		t.Setenv("CONTEXT_DB_TOP_K", "7")
+		t.Setenv("CONTEXT_API", "")
+
+		env := AgentEnv(AgentEnvConfig{Role: "polecat", Rig: "myrig", AgentName: "Toast", TownRoot: "/town"})
+
+		assertEnv(t, env, "CONTEXT_DB_URL", "http://localhost:8080")
+		assertEnv(t, env, "CONTEXT_DB_TOP_K", "7")
+		assertEnv(t, env, "CONTEXT_API", "http://localhost:8080") // derived for the ctx CLI
+	})
+
+	t.Run("explicit CONTEXT_API is not overridden", func(t *testing.T) {
+		t.Setenv("CONTEXT_DB_URL", "http://localhost:8080")
+		t.Setenv("CONTEXT_API", "http://remote:9999")
+
+		env := AgentEnv(AgentEnvConfig{Role: "polecat", Rig: "myrig", AgentName: "Toast", TownRoot: "/town"})
+		assertEnv(t, env, "CONTEXT_API", "http://remote:9999")
+	})
+
+	t.Run("default off when unset", func(t *testing.T) {
+		t.Setenv("CONTEXT_DB_URL", "")
+		t.Setenv("CONTEXT_DB_TOP_K", "")
+		t.Setenv("CONTEXT_API", "")
+
+		env := AgentEnv(AgentEnvConfig{Role: "polecat", Rig: "myrig", AgentName: "Toast", TownRoot: "/town"})
+		assertNotSet(t, env, "CONTEXT_DB_URL")
+		assertNotSet(t, env, "CONTEXT_DB_TOP_K")
+		assertNotSet(t, env, "CONTEXT_API")
+	})
+}
+
 func assertEnv(t *testing.T, env map[string]string, key, expected string) {
 	t.Helper()
 	if got := env[key]; got != expected {

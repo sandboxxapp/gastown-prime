@@ -8,8 +8,10 @@ import (
 	"testing"
 )
 
-// expectedWrappers is the canonical list of wrapper scripts.
-// Keep in sync with Install() and Remove() in wrappers.go.
+// expectedWrappers is the gt-prefixed agent-launcher wrappers. They share the
+// "run gt prime, then exec <tool>" shape, so the shebang/exec/gt-prime tests
+// below apply to them. The full installed set (including the non-gt `ctx` shim)
+// is wrapperNames in wrappers.go; install/removal tests iterate that.
 var expectedWrappers = []string{"gt-codex", "gt-gemini", "gt-opencode"}
 
 func TestEmbeddedScripts_Exist(t *testing.T) {
@@ -80,6 +82,40 @@ func TestEmbeddedScripts_HaveGtPrime(t *testing.T) {
 	}
 }
 
+// TestCtxWrapper_Shape asserts the non-gt `ctx` shim is embedded and resolves
+// the bridge's context-db CLI under the town root (sbx-gastown-g2lww).
+func TestCtxWrapper_Shape(t *testing.T) {
+	t.Parallel()
+	content, err := scriptsFS.ReadFile("scripts/ctx")
+	if err != nil {
+		t.Fatalf("embedded ctx wrapper not found: %v", err)
+	}
+	s := string(content)
+	if !strings.HasPrefix(s, "#!/") {
+		t.Errorf("ctx wrapper missing shebang")
+	}
+	for _, want := range []string{"GT_ROOT", "context-db/ctx", "CONTEXT_API", "exec python3"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("ctx wrapper missing %q", want)
+		}
+	}
+}
+
+// TestWrapperNames_IncludesCtx guards against the gt-prefixed expectedWrappers
+// and the full wrapperNames set drifting apart.
+func TestWrapperNames_IncludesCtx(t *testing.T) {
+	t.Parallel()
+	found := false
+	for _, n := range wrapperNames {
+		if n == "ctx" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("wrapperNames should include ctx; got %v", wrapperNames)
+	}
+}
+
 func TestInstall_CreatesAllWrappers(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("wrapper install not supported on Windows")
@@ -96,7 +132,7 @@ func TestInstall_CreatesAllWrappers(t *testing.T) {
 	}
 
 	binDir := filepath.Join(tmpHome, "bin")
-	for _, name := range expectedWrappers {
+	for _, name := range wrapperNames {
 		path := filepath.Join(binDir, name)
 		info, err := os.Stat(path)
 		if err != nil {
@@ -128,7 +164,7 @@ func TestRemove_CleansUp(t *testing.T) {
 
 	// Verify files exist
 	binDir := filepath.Join(tmpHome, "bin")
-	for _, name := range expectedWrappers {
+	for _, name := range wrapperNames {
 		if _, err := os.Stat(filepath.Join(binDir, name)); err != nil {
 			t.Fatalf("Precondition: wrapper %s should exist after Install", name)
 		}
@@ -140,7 +176,7 @@ func TestRemove_CleansUp(t *testing.T) {
 	}
 
 	// Verify files are gone
-	for _, name := range expectedWrappers {
+	for _, name := range wrapperNames {
 		if _, err := os.Stat(filepath.Join(binDir, name)); err == nil {
 			t.Errorf("Wrapper %s still exists after Remove()", name)
 		}
