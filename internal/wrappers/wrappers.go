@@ -13,6 +13,11 @@ import (
 //go:embed scripts/*
 var scriptsFS embed.FS
 
+// wrapperNames are the shim scripts installed onto ~/bin. The gt-* shims run
+// `gt prime` before launching non-Claude agentic tools; `ctx` exposes the
+// bridge's context-db CLI to agent sessions (sbx-gastown-g2lww).
+var wrapperNames = []string{"gt-codex", "gt-gemini", "gt-opencode", "ctx"}
+
 func Install() error {
 	binDir, err := binPath()
 	if err != nil {
@@ -23,8 +28,7 @@ func Install() error {
 		return fmt.Errorf("creating bin directory: %w", err)
 	}
 
-	wrappers := []string{"gt-codex", "gt-gemini", "gt-opencode"}
-	for _, name := range wrappers {
+	for _, name := range wrapperNames {
 		content, err := scriptsFS.ReadFile("scripts/" + name)
 		if err != nil {
 			return fmt.Errorf("reading embedded %s: %w", name, err)
@@ -45,8 +49,7 @@ func Remove() error {
 		return err
 	}
 
-	wrappers := []string{"gt-codex", "gt-gemini", "gt-opencode"}
-	for _, name := range wrappers {
+	for _, name := range wrapperNames {
 		destPath := filepath.Join(binDir, name)
 		if err := os.Remove(destPath); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("removing %s: %w", name, err)
