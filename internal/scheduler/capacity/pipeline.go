@@ -30,6 +30,7 @@ type SlingContextFields struct {
 	ReviewOnly       bool   `json:"review_only,omitempty"`
 	Account          string `json:"account,omitempty"`
 	Agent            string `json:"agent,omitempty"`
+	Effort           string `json:"effort,omitempty"`
 	HookRawBead      bool   `json:"hook_raw_bead,omitempty"`
 	Owned            bool   `json:"owned,omitempty"`
 	Mode             string `json:"mode,omitempty"`
@@ -220,6 +221,7 @@ type DispatchParams struct {
 	BaseBranch  string
 	Account     string
 	Agent       string
+	Effort      string
 	Mode        string
 	NoMerge     bool
 	ReviewOnly  bool
@@ -237,6 +239,7 @@ func ReconstructFromContext(ctx *SlingContextFields) DispatchParams {
 		BaseBranch:  ctx.BaseBranch,
 		Account:     ctx.Account,
 		Agent:       ctx.Agent,
+		Effort:      ctx.Effort,
 		Mode:        ctx.Mode,
 		NoMerge:     ctx.NoMerge,
 		ReviewOnly:  ctx.ReviewOnly,
