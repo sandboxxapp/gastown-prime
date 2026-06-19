@@ -62,6 +62,13 @@ type ReapResult struct {
 	PartialWork     bool   `json:"partial_work,omitempty"`
 	WorktreeDirty   bool   `json:"worktree_dirty,omitempty"`
 	UnpushedCount   int    `json:"unpushed_count,omitempty"`
+	// ClaudePID is the orphaned claude process matched by strict marker and
+	// killed as part of the reap (comma-joined if more than one). Empty if none.
+	ClaudePID string `json:"claude_pid,omitempty"`
+	// ClaudeSignaled is the strongest signal sent to the orphan: TERM, KILL, or none.
+	ClaudeSignaled string `json:"claude_signaled,omitempty"`
+	// PostRemoveAlive is true if a marker-matched claude survived even SIGKILL.
+	PostRemoveAlive bool   `json:"post_remove_alive,omitempty"`
 	Error           string `json:"error,omitempty"`
 }
 
@@ -166,6 +173,17 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 					BeadStatus:    beadStatus,
 					SessionKilled: false, // Session was already gone
 				}
+				// The polecat self-exited (gt exit), but its claude process may
+				// have called setsid()/reparented to init and leaked — the
+				// self-terminate goroutine that should kill claude on gt exit is
+				// unreliable (sbx-gastown-xpuv). Reap the orphan by strict marker.
+				if !cfg.DryRun {
+					ok := killOrphanedPolecatProcess(dir.Rig, dir.Polecat)
+					reapResult.ClaudePID = ok.PID
+					reapResult.ClaudeSignaled = ok.Signaled
+					reapResult.PostRemoveAlive = ok.Alive
+				}
+
 				// Clean up worktree if no partial work
 				worktreePath := polecatWorktreePath(townRoot, dir.Rig, dir.Polecat)
 				if worktreePath != "" {
@@ -178,8 +196,8 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 					} else {
 						reapResult.WorktreeRemoved = true
 					}
-					_ = events.LogFeed(events.TypeReap, "deacon", events.ReapPayload(
-						dir.Rig, dir.Polecat, beadID, false, reapResult.WorktreeRemoved,
+					_ = events.LogFeed(events.TypeReap, "deacon", reapEventPayload(
+						dir.Rig, dir.Polecat, beadID, false, reapResult,
 					))
 					result.Reaped++
 				}
@@ -290,6 +308,15 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 		}
 		reapResult.SessionKilled = true
 
+		// Belt-and-suspenders: KillSessionWithProcesses walks the pane's process
+		// tree/group, but a claude that called setsid() and reparented to init
+		// escapes it (evidence 2026-06-18: PIDs survived tmux kill, reparented to
+		// init — sbx-gastown-2bq4h). Kill any survivor by STRICT marker match.
+		ok := killOrphanedPolecatProcess(dir.Rig, dir.Polecat)
+		reapResult.ClaudePID = ok.PID
+		reapResult.ClaudeSignaled = ok.Signaled
+		reapResult.PostRemoveAlive = ok.Alive
+
 		// Sync beads from rig to town root before removing the worktree.
 		if err := syncBeadsToTown(townRoot, dir.Rig); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: beads sync failed for %s/%s: %v\n", dir.Rig, dir.Polecat, err)
@@ -311,8 +338,8 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 		}
 
 		// Log reap event
-		_ = events.LogFeed(events.TypeReap, "deacon", events.ReapPayload(
-			dir.Rig, dir.Polecat, beadID, reapResult.SessionKilled, reapResult.WorktreeRemoved,
+		_ = events.LogFeed(events.TypeReap, "deacon", reapEventPayload(
+			dir.Rig, dir.Polecat, beadID, reapResult.SessionKilled, reapResult,
 		))
 
 		result.Reaped++
@@ -320,6 +347,25 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 	}
 
 	return result, nil
+}
+
+// reapEventPayload builds the reap feed payload, layering the orphan-claude
+// kill journal (claude_pid, claude_signaled, post_remove_alive) onto the base
+// events.ReapPayload. claude_signaled is always recorded — even "none" — so
+// operators can confirm the reaper looked for an orphan; claude_pid and
+// post_remove_alive are recorded only when meaningful.
+func reapEventPayload(rig, polecat, beadID string, sessionKilled bool, r *ReapResult) map[string]interface{} {
+	p := events.ReapPayload(rig, polecat, beadID, sessionKilled, r.WorktreeRemoved)
+	if r.ClaudeSignaled != "" {
+		p["claude_signaled"] = r.ClaudeSignaled
+	}
+	if r.ClaudePID != "" {
+		p["claude_pid"] = r.ClaudePID
+	}
+	if r.PostRemoveAlive {
+		p["post_remove_alive"] = true
+	}
+	return p
 }
 
 // listPolecatDirs discovers all polecat directories across rigs in the town.
