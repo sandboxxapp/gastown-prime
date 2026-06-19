@@ -65,6 +65,7 @@ type ScheduleOptions struct {
 	MCPs        []string // MCP proxy access specs (name:mode)
 	GCPs        []string // GCP SA impersonation profile names
 	Secrets     []string // Scoped app/service credential profile names (--secrets)
+	Effort      string   // Claude reasoning-effort level (--effort)
 }
 
 // scheduleBead schedules a bead for deferred dispatch via the capacity scheduler.
@@ -168,6 +169,9 @@ func scheduleBead(beadID, rigName string, opts ScheduleOptions) error {
 	}
 	if opts.Agent != "" {
 		fields.Agent = opts.Agent
+	}
+	if opts.Effort != "" {
+		fields.Effort = opts.Effort
 	}
 	fields.HookRawBead = opts.HookRawBead
 	if opts.Ralph {

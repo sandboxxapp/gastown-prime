@@ -111,6 +111,7 @@ type ResolveTargetOptions struct {
 	TownRoot   string
 	WorkDesc   string // Description for dog dispatch (defaults to HookBead if empty)
 	BaseBranch string // Override base branch for polecat worktree
+	Effort     string // Claude reasoning-effort level (--effort), empty = inherit ambient
 }
 
 // ResolvedTarget holds the results of target resolution.
@@ -216,6 +217,7 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 			Agent:      opts.Agent,
 			BaseBranch: opts.BaseBranch,
 			Fresh:      opts.Fresh,
+			Effort:     opts.Effort,
 		}
 		spawnInfo, err := spawnPolecatForSling(rigName, spawnOpts)
 		if err != nil {
@@ -253,6 +255,7 @@ func resolveTarget(target string, opts ResolveTargetOptions) (*ResolvedTarget, e
 					HookBead:   opts.HookBead,
 					Agent:      opts.Agent,
 					BaseBranch: opts.BaseBranch,
+					Effort:     opts.Effort,
 				}
 				spawnInfo, spawnErr := spawnPolecatForSling(rigName, spawnOpts)
 				if spawnErr != nil {

@@ -72,6 +72,12 @@ type AgentEnvConfig struct {
 	// Added as gt.session to OTEL_RESOURCE_ATTRIBUTES so all Claude logs from a
 	// single GT session can be correlated, and as GT_SESSION env var.
 	SessionName string
+
+	// Effort is the Claude Code reasoning-effort level for this session
+	// (low|medium|high|xhigh|max). When non-empty, `--effort <level>` is appended
+	// to the Claude command line. Empty means "inherit the ambient effortLevel".
+	// Ignored for non-Claude agents. Not emitted as an environment variable.
+	Effort string
 }
 
 // AgentEnv returns all environment variables for an agent based on the config.

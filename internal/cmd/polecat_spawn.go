@@ -35,6 +35,7 @@ type SpawnedPolecatInfo struct {
 	// Internal fields for deferred session start
 	account  string
 	agent    string
+	effort   string            // Claude reasoning-effort level (--effort), empty = inherit ambient
 	extraEnv map[string]string // GCP tokens, ADC blocking env vars
 }
 
@@ -57,6 +58,7 @@ type SlingSpawnOptions struct {
 	Agent      string // Agent override for this spawn (e.g., "gemini", "codex", "claude-haiku")
 	BaseBranch string // Override base branch for polecat worktree (e.g., "develop", "release/v2")
 	Fresh      bool   // Skip idle-polecat reuse; always allocate a new named slot from the namepool
+	Effort     string // Claude reasoning-effort level (--effort), empty = inherit ambient
 }
 
 // SpawnPolecatForSling creates a fresh polecat and optionally starts its session.
@@ -248,6 +250,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 				Branch:      polecatObj.Branch,
 				account:     opts.Account,
 				agent:       opts.Agent,
+				effort:      opts.Effort,
 			}, nil
 		}
 	}
@@ -332,6 +335,7 @@ func SpawnPolecatForSling(rigName string, opts SlingSpawnOptions) (*SpawnedPolec
 		Branch:      polecatObj.Branch,
 		account:     opts.Account,
 		agent:       opts.Agent,
+		effort:      opts.Effort,
 	}, nil
 }
 
@@ -379,6 +383,7 @@ func (s *SpawnedPolecatInfo) StartSession() (string, error) {
 		RuntimeConfigDir: claudeConfigDir,
 		Agent:            s.agent,
 		ExtraEnv:         s.extraEnv,
+		Effort:           s.effort,
 	}
 	if err := polecatSessMgr.Start(s.PolecatName, startOpts); err != nil {
 		return "", fmt.Errorf("starting session: %w", err)

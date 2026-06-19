@@ -1465,6 +1465,48 @@ func withRoleSettingsFlag(rc *RuntimeConfig, role, rigPath string) *RuntimeConfi
 	return rc
 }
 
+// ValidEffortLevels is the set of Claude Code reasoning-effort levels accepted
+// by the `claude --effort <level>` CLI flag. "max" is supported only via the
+// CLI flag / env var (not settings.json), which is why per-dispatch plumbing
+// uses the flag rather than writing effortLevel into settings.
+var ValidEffortLevels = []string{"low", "medium", "high", "xhigh", "max"}
+
+// ValidateEffortLevel returns an error if level is not an accepted Claude Code
+// reasoning-effort level. An empty level is valid (means "unset" — inherit the
+// ambient effortLevel from settings).
+func ValidateEffortLevel(level string) error {
+	if level == "" {
+		return nil
+	}
+	for _, v := range ValidEffortLevels {
+		if level == v {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid effort level %q: must be one of %s", level, strings.Join(ValidEffortLevels, ", "))
+}
+
+// withEffortFlag appends `--effort <level>` to the Args for Claude agents when
+// a non-empty effort level is requested. Other agents (codex, gemini, ...) don't
+// understand the flag, so it's only injected for Claude. Placed in Args (before
+// the positional prompt) so the final command is `claude ... --effort <level> "<prompt>"`.
+func withEffortFlag(rc *RuntimeConfig, effort string) *RuntimeConfig {
+	if rc == nil || effort == "" {
+		return rc
+	}
+	if !isClaudeAgent(rc) {
+		return rc
+	}
+	// Guard against double-adding.
+	for _, arg := range rc.Args {
+		if arg == "--effort" {
+			return rc
+		}
+	}
+	rc.Args = append(rc.Args, "--effort", effort)
+	return rc
+}
+
 // RoleSettingsDir returns the shared settings directory for roles whose session
 // working directory differs from their settings location. Returns empty for
 // roles where settings and session directory are the same (mayor, deacon).
@@ -2363,6 +2405,13 @@ func PrependEnv(command string, envVars map[string]string) string {
 //  2. role_agents[GT_ROLE] (if GT_ROLE is in envVars)
 //  3. Default agent resolution (rig's Agent → town's DefaultAgent → "claude")
 func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, prompt, agentOverride string) (string, error) {
+	return buildStartupCommandCore(envVars, rigPath, prompt, agentOverride, "")
+}
+
+// buildStartupCommandCore is the implementation shared by
+// BuildStartupCommandWithAgentOverride and BuildStartupCommandFromConfig.
+// effort, when non-empty, injects `--effort <level>` for Claude agents.
+func buildStartupCommandCore(envVars map[string]string, rigPath, prompt, agentOverride, effort string) (string, error) {
 	var rc *RuntimeConfig
 	var townRoot string
 
@@ -2430,6 +2479,10 @@ func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, pr
 	// non-override ResolveRoleAgentConfig path included it, causing hooks
 	// to silently not fire for polecats launched with --agent.
 	rc = withRoleSettingsFlag(rc, role, rigPath)
+
+	// Inject --effort <level> for Claude agents when a per-dispatch effort
+	// level was requested. No-op for other agents or when effort is empty.
+	rc = withEffortFlag(rc, effort)
 
 	// Apply exec wrapper from rig/town settings if not already set on the resolved config.
 	if len(rc.ExecWrapper) == 0 {
@@ -2542,7 +2595,7 @@ func BuildStartupCommandWithAgentOverride(envVars map[string]string, rigPath, pr
 // The rigPath, prompt, and agentOverride are passed through directly.
 func BuildStartupCommandFromConfig(cfg AgentEnvConfig, rigPath, prompt, agentOverride string) (string, error) {
 	envVars := AgentEnv(cfg)
-	return BuildStartupCommandWithAgentOverride(envVars, rigPath, prompt, agentOverride)
+	return buildStartupCommandCore(envVars, rigPath, prompt, agentOverride, cfg.Effort)
 }
 
 // BuildAgentStartupCommand is a convenience function for starting agent sessions.

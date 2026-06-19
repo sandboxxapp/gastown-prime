@@ -40,6 +40,7 @@ type SlingParams struct {
 	MCPs        []string // --mcp: MCP proxy access specs (name:mode)
 	GCPs        []string // --gcp: GCP SA impersonation profile names
 	Secrets     []string // --secrets: scoped app/service credential profile names
+	Effort      string   // --effort: Claude reasoning-effort level for the spawned polecat
 
 	// Execution behavior (set by caller, not serialized to queue)
 	SkipCook         bool   // Batch optimization: formula already cooked
@@ -230,6 +231,7 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		HookBead:   params.BeadID,
 		Agent:      params.Agent,
 		BaseBranch: params.BaseBranch,
+		Effort:     params.Effort,
 		// Create is always true for rig targets: executeSling only handles
 		// rig-targeted dispatch (batch sling + queue dispatch), where a fresh
 		// polecat must be spawned. The single-sling path (runSling) handles

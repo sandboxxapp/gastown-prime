@@ -81,6 +81,11 @@ type SessionStartOptions struct {
 	// Used for GCP token injection (CLOUDSDK_AUTH_ACCESS_TOKEN, etc.) and other
 	// per-dispatch env vars that the session manager doesn't know about.
 	ExtraEnv map[string]string
+
+	// Effort is the Claude Code reasoning-effort level for this session
+	// (low|medium|high|xhigh|max). When non-empty, `--effort <level>` is appended
+	// to the Claude startup command. Empty inherits the ambient effortLevel.
+	Effort string
 }
 
 // SessionInfo contains information about a running polecat session.
@@ -318,6 +323,7 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 			Issue:       opts.Issue,
 			Topic:       "assigned",
 			SessionName: sessionID,
+			Effort:      opts.Effort,
 		}, m.rig.Path, beacon, opts.Agent)
 		if err != nil {
 			return fmt.Errorf("building startup command: %w", err)

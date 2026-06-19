@@ -5586,3 +5586,100 @@ func TestBuildStartupCommandWithAgentOverride_NoDoubleSettingsOnNonOverridePath(
 		t.Errorf("default Claude agent on polecat role should still get --settings, got: %q", cmd)
 	}
 }
+
+func TestValidateEffortLevel(t *testing.T) {
+	t.Parallel()
+	valid := []string{"", "low", "medium", "high", "xhigh", "max"}
+	for _, level := range valid {
+		if err := ValidateEffortLevel(level); err != nil {
+			t.Errorf("ValidateEffortLevel(%q) = %v, want nil", level, err)
+		}
+	}
+	invalid := []string{"bogus", "MAX", "extreme", "none", "0"}
+	for _, level := range invalid {
+		if err := ValidateEffortLevel(level); err == nil {
+			t.Errorf("ValidateEffortLevel(%q) = nil, want error", level)
+		}
+	}
+}
+
+func TestBuildStartupCommandFromConfig_EffortFlagForClaude(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+
+	if err := SaveTownSettings(TownSettingsPath(townRoot), NewTownSettings()); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+	if err := SaveRigSettings(RigSettingsPath(rigPath), NewRigSettings()); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	cmd, err := BuildStartupCommandFromConfig(AgentEnvConfig{
+		Role:     "polecat",
+		Rig:      "testrig",
+		TownRoot: townRoot,
+		Effort:   "max",
+	}, rigPath, "", "")
+	if err != nil {
+		t.Fatalf("BuildStartupCommandFromConfig: %v", err)
+	}
+
+	if !strings.Contains(cmd, "--effort max") {
+		t.Errorf("Claude polecat with Effort=max should include --effort max, got: %q", cmd)
+	}
+}
+
+func TestBuildStartupCommandFromConfig_NoEffortFlagWhenUnset(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+
+	if err := SaveTownSettings(TownSettingsPath(townRoot), NewTownSettings()); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+	if err := SaveRigSettings(RigSettingsPath(rigPath), NewRigSettings()); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	cmd, err := BuildStartupCommandFromConfig(AgentEnvConfig{
+		Role:     "polecat",
+		Rig:      "testrig",
+		TownRoot: townRoot,
+		// Effort unset — should inherit ambient, no flag appended.
+	}, rigPath, "", "")
+	if err != nil {
+		t.Fatalf("BuildStartupCommandFromConfig: %v", err)
+	}
+
+	if strings.Contains(cmd, "--effort") {
+		t.Errorf("unset Effort should NOT append --effort, got: %q", cmd)
+	}
+}
+
+func TestBuildStartupCommandFromConfig_NoEffortFlagForNonClaude(t *testing.T) {
+	t.Parallel()
+	townRoot := t.TempDir()
+	rigPath := filepath.Join(townRoot, "testrig")
+
+	if err := SaveTownSettings(TownSettingsPath(townRoot), NewTownSettings()); err != nil {
+		t.Fatalf("SaveTownSettings: %v", err)
+	}
+	if err := SaveRigSettings(RigSettingsPath(rigPath), NewRigSettings()); err != nil {
+		t.Fatalf("SaveRigSettings: %v", err)
+	}
+
+	cmd, err := BuildStartupCommandFromConfig(AgentEnvConfig{
+		Role:     "polecat",
+		Rig:      "testrig",
+		TownRoot: townRoot,
+		Effort:   "max",
+	}, rigPath, "", "gemini")
+	if err != nil {
+		t.Fatalf("BuildStartupCommandFromConfig: %v", err)
+	}
+
+	if strings.Contains(cmd, "--effort") {
+		t.Errorf("non-Claude agent (gemini) should NOT get --effort, got: %q", cmd)
+	}
+}

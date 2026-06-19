@@ -471,6 +471,7 @@ func dispatchSingleBead(b capacity.PendingBead, townRoot, _ string) (*SlingResul
 		ReviewOnly:       dp.ReviewOnly,
 		Account:          dp.Account,
 		Agent:            dp.Agent,
+		Effort:           dp.Effort,
 		HookRawBead:      dp.HookRawBead,
 		Mode:             dp.Mode,
 		FormulaFailFatal: true,

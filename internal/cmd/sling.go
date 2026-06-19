@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/events"
 	"github.com/steveyegge/gastown/internal/lock"
 	"github.com/steveyegge/gastown/internal/mail"
@@ -140,6 +141,7 @@ var (
 	slingGCPs          []string // --gcp: GCP SA impersonation profiles, can be repeated
 	slingSecrets       []string // --secrets: scoped app/service credential profiles, can be repeated
 	slingFresh         bool     // --fresh: skip idle-polecat reuse, always allocate a new slot
+	slingEffort        string   // --effort: Claude reasoning-effort level for the spawned polecat
 )
 
 func init() {
@@ -172,6 +174,7 @@ func init() {
 	slingCmd.Flags().StringArrayVar(&slingGCPs, "gcp", nil, "GCP SA impersonation profile, can be repeated (e.g., --gcp terraform-plan)")
 	slingCmd.Flags().StringArrayVar(&slingSecrets, "secrets", nil, "Scoped app/service credential profile to inject as env vars, can be repeated (e.g., --secrets community-admin)")
 	slingCmd.Flags().BoolVar(&slingFresh, "fresh", false, "Skip idle-polecat reuse; always allocate a new named slot from the namepool")
+	slingCmd.Flags().StringVar(&slingEffort, "effort", "", "Claude reasoning-effort level for the spawned polecat (low|medium|high|xhigh|max); default inherits the ambient effortLevel from settings")
 
 	slingCmd.AddCommand(slingRespawnResetCmd)
 	rootCmd.AddCommand(slingCmd)
@@ -239,6 +242,11 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		default:
 			return fmt.Errorf("invalid --merge value %q: must be direct, mr, or local", slingMerge)
 		}
+	}
+
+	// Validate --effort flag if provided (low|medium|high|xhigh|max).
+	if err := config.ValidateEffortLevel(slingEffort); err != nil {
+		return err
 	}
 
 	// Disable Dolt auto-commit for all bd commands run during sling (gt-u6n6a).
@@ -373,6 +381,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 				ReviewOnly:  slingReviewOnly,
 				Account:     slingAccount,
 				Agent:       slingAgent,
+				Effort:      slingEffort,
 				HookRawBead: slingHookRawBead,
 				Ralph:       slingRalph,
 				MCPs:        slingMCPs,
@@ -416,6 +425,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 			ReviewOnly:  slingReviewOnly,
 			Account:     slingAccount,
 			Agent:       slingAgent,
+			Effort:      slingEffort,
 			HookRawBead: slingHookRawBead,
 			Ralph:       slingRalph,
 		})
@@ -453,6 +463,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 				ReviewOnly:  slingReviewOnly,
 				Account:     slingAccount,
 				Agent:       slingAgent,
+				Effort:      slingEffort,
 				HookRawBead: slingHookRawBead,
 				Ralph:       slingRalph,
 				MCPs:        slingMCPs,
@@ -690,6 +701,7 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		BeadID:     beadID,
 		TownRoot:   townRoot,
 		BaseBranch: slingBaseBranch,
+		Effort:     slingEffort,
 	})
 	if err != nil {
 		return err
@@ -1050,6 +1062,9 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 	// Start polecat session now that attached_molecule is set.
 	// This ensures polecat sees the molecule when gt prime runs on session start.
 	freshlySpawned := newPolecatInfo != nil
+	if freshlySpawned && slingEffort != "" {
+		fmt.Printf("%s Reasoning effort: %s\n", style.Bold.Render("✓"), slingEffort)
+	}
 	if freshlySpawned {
 		pane, err := newPolecatInfo.StartSession()
 		if err != nil {
