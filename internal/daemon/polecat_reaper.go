@@ -128,8 +128,8 @@ func (d *Daemon) reapCompletedPolecats() {
 		if r.Error != "" {
 			d.logger.Printf("polecat_reaper: %s/%s: error: %s", r.Rig, r.Polecat, r.Error)
 		} else {
-			d.logger.Printf("polecat_reaper: %s/%s: completed (session_killed=%v worktree=%v claude=%s claude_alive=%v bead=%s)",
-				r.Rig, r.Polecat, r.SessionKilled, r.WorktreeRemoved, r.ClaudeSignaled, r.PostRemoveAlive, r.BeadID)
+			d.logger.Printf("polecat_reaper: %s/%s: completed (session_killed=%v worktree=%v claude=%s claude_alive=%v registry_stops=%s bead=%s)",
+				r.Rig, r.Polecat, r.SessionKilled, r.WorktreeRemoved, r.ClaudeSignaled, r.PostRemoveAlive, r.RegistryStops, r.BeadID)
 
 			// Note: archivist extraction is handled by the archivist_dog patrol
 			// (timer-based, reads domain/notes/*.md files). The reaper no longer

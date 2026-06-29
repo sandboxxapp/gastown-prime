@@ -68,8 +68,12 @@ type ReapResult struct {
 	// ClaudeSignaled is the strongest signal sent to the orphan: TERM, KILL, or none.
 	ClaudeSignaled string `json:"claude_signaled,omitempty"`
 	// PostRemoveAlive is true if a marker-matched claude survived even SIGKILL.
-	PostRemoveAlive bool   `json:"post_remove_alive,omitempty"`
-	Error           string `json:"error,omitempty"`
+	PostRemoveAlive bool `json:"post_remove_alive,omitempty"`
+	// RegistryStops lists the deacon agent-registry IDs (.gastown/deacon/agents.jsonl)
+	// for which the reaper emitted a synthetic "stop" event to clear crew-board
+	// ghosts (rig polecats never fire SubagentStop themselves). Comma-joined.
+	RegistryStops string `json:"registry_stops,omitempty"`
+	Error         string `json:"error,omitempty"`
 }
 
 // ReapDecision captures the reaper's decision for a single polecat.
@@ -79,7 +83,7 @@ type ReapDecision struct {
 	Rig        string `json:"rig"`
 	Polecat    string `json:"polecat"`
 	Eligible   bool   `json:"eligible"`
-	Reason     string `json:"reason"`      // no_session, agent_alive, bead_open, bead_query_error, bead_closed, no_bead
+	Reason     string `json:"reason"` // no_session, agent_alive, bead_open, bead_query_error, bead_closed, no_bead
 	HasSession bool   `json:"has_session"`
 	AgentAlive bool   `json:"agent_alive,omitempty"`
 	BeadID     string `json:"bead_id,omitempty"`
@@ -161,7 +165,7 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 				result.Decisions = append(result.Decisions, &ReapDecision{
 					Rig: dir.Rig, Polecat: dir.Polecat,
 					Eligible: true,
-					BeadID: beadID, BeadStatus: beadStatus,
+					BeadID:   beadID, BeadStatus: beadStatus,
 					Reason: reason,
 				})
 				result.Completed++
@@ -182,6 +186,9 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 					reapResult.ClaudePID = ok.PID
 					reapResult.ClaudeSignaled = ok.Signaled
 					reapResult.PostRemoveAlive = ok.Alive
+					// Polecat self-exited but its SubagentStop never fired —
+					// clear the crew-board ghost (sbx-gastown-wwmgc).
+					clearCrewBoardGhost(townRoot, dir.Rig, dir.Polecat, reapResult)
 				}
 
 				// Clean up worktree if no partial work
@@ -223,7 +230,7 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 			result.Decisions = append(result.Decisions, &ReapDecision{
 				Rig: dir.Rig, Polecat: dir.Polecat,
 				HasSession: true,
-				Reason: "bead_query_error",
+				Reason:     "bead_query_error",
 			})
 			result.Results = append(result.Results, &ReapResult{
 				Rig:     dir.Rig,
@@ -276,7 +283,7 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 			Rig: dir.Rig, Polecat: dir.Polecat,
 			Eligible: true, HasSession: true,
 			AgentAlive: agentAlive,
-			BeadID: beadID, BeadStatus: beadStatus,
+			BeadID:     beadID, BeadStatus: beadStatus,
 			Reason: decisionReason,
 		})
 		result.Completed++
@@ -316,6 +323,11 @@ func ScanCompletedPolecatsCtx(ctx context.Context, townRoot string, cfg *ReapCon
 		reapResult.ClaudePID = ok.PID
 		reapResult.ClaudeSignaled = ok.Signaled
 		reapResult.PostRemoveAlive = ok.Alive
+
+		// The reaped polecat never fired its own SubagentStop, so its registry
+		// "start" lingers as an active ghost on the crew board — emit the
+		// matching stop now (sbx-gastown-wwmgc).
+		clearCrewBoardGhost(townRoot, dir.Rig, dir.Polecat, reapResult)
 
 		// Sync beads from rig to town root before removing the worktree.
 		if err := syncBeadsToTown(townRoot, dir.Rig); err != nil {
@@ -365,7 +377,26 @@ func reapEventPayload(rig, polecat, beadID string, sessionKilled bool, r *ReapRe
 	if r.PostRemoveAlive {
 		p["post_remove_alive"] = true
 	}
+	if r.RegistryStops != "" {
+		p["registry_stops"] = r.RegistryStops
+	}
 	return p
+}
+
+// clearCrewBoardGhost emits agent-registry stop event(s) for a reaped polecat
+// and records the stopped agent_id(s) on r. Best-effort by design: a registry
+// that can't be read or written must never fail the reap — the session/worktree
+// cleanup has already succeeded, and a lingering ghost is a cosmetic crew-board
+// issue, not a correctness one. See agent_registry.go for the mechanism.
+func clearCrewBoardGhost(townRoot, rig, polecat string, r *ReapResult) {
+	ids, err := emitRegistryStops(townRoot, rig, polecat)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: clearing crew-board ghost for %s/%s: %v\n", rig, polecat, err)
+		return
+	}
+	if len(ids) > 0 {
+		r.RegistryStops = strings.Join(ids, ",")
+	}
 }
 
 // listPolecatDirs discovers all polecat directories across rigs in the town.
