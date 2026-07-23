@@ -352,6 +352,78 @@ func SetupRedirect(townRoot, worktreePath string) error {
 	return nil
 }
 
+// EnsureRigRedirect writes <rigPath>/.beads/redirect so a freshly added rig
+// routes to the shared town-level .beads/ (the flat-namespace Dolt database) and
+// is dispatchable via `gt sling` with zero manual steps (sbx-gastown-ryi0w).
+//
+// Without this file the rig's .beads/ carries only its local metadata, so bd runs
+// in embedded/no-database mode and the first `gt sling <bead> <rig>` fails while
+// creating the polecat agent bead ("... embeddeddolt: init schema: ... no database
+// selected"). Polecat worktrees already get an equivalent redirect via
+// setupSharedBeads; this is the rig-root analogue.
+//
+// The redirect target is the relative path from the rig directory to the town
+// .beads/, matching how ResolveBeadsDir resolves it (relative to the rig dir, not
+// the .beads dir):
+//   - rig at <town>/<rig>/        → "../.beads"
+//   - rig at <town>/rigs/<rig>/   → "../../.beads"
+//
+// The file is gitignored per-clone runtime state — it must be (re)created on add,
+// never committed. This function overwrites any existing redirect so the rig always
+// points at the shared store.
+//
+// It is a no-op (returns nil) when the rig directory IS the town root (which would
+// self-redirect) or when the town has no shared .beads/ store to point at.
+func EnsureRigRedirect(townRoot, rigPath string) error {
+	townBeadsDir := filepath.Join(townRoot, ".beads")
+	rigBeadsDir := filepath.Join(rigPath, ".beads")
+
+	absTownBeads, err := filepath.Abs(townBeadsDir)
+	if err != nil {
+		return fmt.Errorf("resolving town .beads path: %w", err)
+	}
+	absRigBeads, err := filepath.Abs(rigBeadsDir)
+	if err != nil {
+		return fmt.Errorf("resolving rig .beads path: %w", err)
+	}
+	// Never self-redirect (would create a circular redirect if rig IS the town).
+	if absTownBeads == absRigBeads {
+		return nil
+	}
+
+	// Only redirect when the town actually has a shared beads store to point at.
+	if !townHasBeadsStore(townBeadsDir) {
+		return nil
+	}
+
+	rel, err := filepath.Rel(rigPath, townBeadsDir)
+	if err != nil {
+		return fmt.Errorf("computing redirect target: %w", err)
+	}
+	rel = filepath.ToSlash(rel)
+
+	if err := os.MkdirAll(rigBeadsDir, 0755); err != nil {
+		return fmt.Errorf("creating rig .beads dir: %w", err)
+	}
+	redirectPath := filepath.Join(rigBeadsDir, "redirect")
+	if err := os.WriteFile(redirectPath, []byte(rel+"\n"), 0644); err != nil {
+		return fmt.Errorf("writing rig redirect: %w", err)
+	}
+	return nil
+}
+
+// townHasBeadsStore reports whether townBeadsDir looks like a real beads store
+// (has a Dolt database, metadata, or config). Used to avoid pointing a rig at a
+// town that has no shared store.
+func townHasBeadsStore(townBeadsDir string) bool {
+	for _, marker := range []string{"metadata.json", "config.yaml", "dolt"} {
+		if _, err := os.Stat(filepath.Join(townBeadsDir, marker)); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
 // IsLocalBeadsDir returns true if resolvedPath is the cwd's own .beads/ directory
 // (i.e., no redirect was followed). This indicates the beads client will write to
 // a local database that other agents (e.g., the Refinery) will never read.
