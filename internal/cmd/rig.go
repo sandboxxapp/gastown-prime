@@ -637,6 +637,15 @@ func runRigAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Point the rig's .beads/ at the shared town-level store so the rig is
+	// dispatchable via `gt sling` out of the box (sbx-gastown-ryi0w). Without this
+	// redirect bd runs in embedded/no-database mode and the first sling fails with
+	// "no database selected" while creating the polecat agent bead. Done last so it
+	// doesn't perturb the rig-local beads setup above (identity/agent beads, prefix).
+	if err := beads.EnsureRigRedirect(townRoot, filepath.Join(townRoot, name)); err != nil {
+		fmt.Printf("  %s Could not set up rig beads redirect: %v\n", style.Warning.Render("!"), err)
+	}
+
 	// Auto-assign a namepool theme that doesn't collide with other rigs (gas-21k).
 	autoAssignNamepoolTheme(townRoot, name, mgr)
 
@@ -1353,6 +1362,13 @@ func runRigAdopt(_ *cobra.Command, args []string) error {
 				fmt.Printf("  %s Created agent bead: %s\n", style.Success.Render("✓"), refineryID)
 			}
 		}
+	}
+
+	// Point the rig's .beads/ at the shared town-level store so the adopted rig is
+	// dispatchable via `gt sling` out of the box (sbx-gastown-ryi0w), matching the
+	// non-adopt path above.
+	if err := beads.EnsureRigRedirect(townRoot, rigPath); err != nil {
+		fmt.Printf("  %s Could not set up rig beads redirect: %v\n", style.Warning.Render("!"), err)
 	}
 
 	// Auto-assign a namepool theme that doesn't collide with other rigs (gas-21k).

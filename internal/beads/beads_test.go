@@ -2038,6 +2038,127 @@ func TestDelegationTerms(t *testing.T) {
 }
 
 // TestSetupRedirect tests the beads redirect setup for worktrees.
+func TestEnsureRigRedirect(t *testing.T) {
+	// Helper: create a town-level .beads store so EnsureRigRedirect has a target.
+	makeTownBeads := func(t *testing.T, townRoot string) {
+		t.Helper()
+		townBeads := filepath.Join(townRoot, ".beads")
+		if err := os.MkdirAll(townBeads, 0755); err != nil {
+			t.Fatalf("mkdir town beads: %v", err)
+		}
+		// A config.yaml is one of the markers townHasBeadsStore recognizes.
+		if err := os.WriteFile(filepath.Join(townBeads, "config.yaml"), []byte("prefix: hq\n"), 0644); err != nil {
+			t.Fatalf("write town config.yaml: %v", err)
+		}
+	}
+
+	t.Run("rig at town root gets ../.beads", func(t *testing.T) {
+		townRoot := t.TempDir()
+		makeTownBeads(t, townRoot)
+		rigPath := filepath.Join(townRoot, "cms")
+		if err := os.MkdirAll(rigPath, 0755); err != nil {
+			t.Fatalf("mkdir rig: %v", err)
+		}
+
+		if err := EnsureRigRedirect(townRoot, rigPath); err != nil {
+			t.Fatalf("EnsureRigRedirect: %v", err)
+		}
+
+		got := readRedirect(t, rigPath)
+		if got != "../.beads" {
+			t.Errorf("redirect = %q, want %q", got, "../.beads")
+		}
+		// The redirect must resolve to the town-level .beads.
+		resolved := ResolveBeadsDir(rigPath)
+		wantResolved := filepath.Join(townRoot, ".beads")
+		if resolved != wantResolved {
+			t.Errorf("ResolveBeadsDir = %q, want %q", resolved, wantResolved)
+		}
+	})
+
+	t.Run("rig under rigs/ gets ../../.beads", func(t *testing.T) {
+		townRoot := t.TempDir()
+		makeTownBeads(t, townRoot)
+		rigPath := filepath.Join(townRoot, "rigs", "cms")
+		if err := os.MkdirAll(rigPath, 0755); err != nil {
+			t.Fatalf("mkdir rig: %v", err)
+		}
+
+		if err := EnsureRigRedirect(townRoot, rigPath); err != nil {
+			t.Fatalf("EnsureRigRedirect: %v", err)
+		}
+
+		got := readRedirect(t, rigPath)
+		if got != "../../.beads" {
+			t.Errorf("redirect = %q, want %q", got, "../../.beads")
+		}
+		resolved := ResolveBeadsDir(rigPath)
+		wantResolved := filepath.Join(townRoot, ".beads")
+		if resolved != wantResolved {
+			t.Errorf("ResolveBeadsDir = %q, want %q", resolved, wantResolved)
+		}
+	})
+
+	t.Run("overwrites a stale redirect", func(t *testing.T) {
+		townRoot := t.TempDir()
+		makeTownBeads(t, townRoot)
+		rigPath := filepath.Join(townRoot, "cms")
+		rigBeads := filepath.Join(rigPath, ".beads")
+		if err := os.MkdirAll(rigBeads, 0755); err != nil {
+			t.Fatalf("mkdir rig beads: %v", err)
+		}
+		// A pre-existing (wrong) redirect, e.g. left by InitBeads tracked-beads path.
+		if err := os.WriteFile(filepath.Join(rigBeads, "redirect"), []byte("mayor/rig/.beads\n"), 0644); err != nil {
+			t.Fatalf("write stale redirect: %v", err)
+		}
+
+		if err := EnsureRigRedirect(townRoot, rigPath); err != nil {
+			t.Fatalf("EnsureRigRedirect: %v", err)
+		}
+		if got := readRedirect(t, rigPath); got != "../.beads" {
+			t.Errorf("redirect = %q, want %q (should overwrite stale)", got, "../.beads")
+		}
+	})
+
+	t.Run("no-op when town has no beads store", func(t *testing.T) {
+		townRoot := t.TempDir()
+		// Intentionally do NOT create town .beads.
+		rigPath := filepath.Join(townRoot, "cms")
+		if err := os.MkdirAll(rigPath, 0755); err != nil {
+			t.Fatalf("mkdir rig: %v", err)
+		}
+
+		if err := EnsureRigRedirect(townRoot, rigPath); err != nil {
+			t.Fatalf("EnsureRigRedirect: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(rigPath, ".beads", "redirect")); !os.IsNotExist(err) {
+			t.Errorf("redirect should not exist when town has no beads store (err=%v)", err)
+		}
+	})
+
+	t.Run("no-op (no self-redirect) when rig is the town root", func(t *testing.T) {
+		townRoot := t.TempDir()
+		makeTownBeads(t, townRoot)
+
+		if err := EnsureRigRedirect(townRoot, townRoot); err != nil {
+			t.Fatalf("EnsureRigRedirect: %v", err)
+		}
+		if _, err := os.Stat(filepath.Join(townRoot, ".beads", "redirect")); !os.IsNotExist(err) {
+			t.Errorf("town .beads/redirect should not be created (self-redirect) (err=%v)", err)
+		}
+	})
+}
+
+// readRedirect reads and trims <rigPath>/.beads/redirect for assertions.
+func readRedirect(t *testing.T, rigPath string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(rigPath, ".beads", "redirect"))
+	if err != nil {
+		t.Fatalf("read redirect: %v", err)
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func TestSetupRedirect(t *testing.T) {
 	t.Run("rig with own DB redirects to rig-level beads", func(t *testing.T) {
 		// When rig has its own dolt_database in metadata.json, crew must
