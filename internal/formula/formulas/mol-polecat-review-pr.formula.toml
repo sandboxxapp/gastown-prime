@@ -191,28 +191,119 @@ Concern: <security issue found>"
 
 [[steps]]
 id = "submit-review"
-title = "Submit the review on GitHub"
+title = "Post the review content to the PR (and record on the bead)"
 needs = ["make-decision"]
 description = """
-Submit your review via GitHub.
+Your review verdict is worthless if a maintainer can't see it. The deliverable of
+this step is a **comment ON THE PR** carrying the full substance of your review —
+not a one-line approval stamp, and not only a note buried on the tracking bead.
 
-**1. Submit the review:**
-```bash
-# For APPROVE:
-gh pr review {{pr_url}} --approve --body "LGTM. <brief summary of what's good>"
+> **The rule:** the review CONTENT must reach the PR. Always. Recording it on the
+> bead is a backstop, not a substitute. NEVER silently skip the PR post.
 
-# For REQUEST_CHANGES:
-gh pr review {{pr_url}} --request-changes --body "<detailed feedback>"
+## 1. Assemble the review comment body
 
-# For COMMENT (needs discussion):
-gh pr review {{pr_url}} --comment --body "<questions or discussion points>"
+Compose the full review content as markdown. It MUST include, at minimum:
+
+- **Verdict:** `APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION` (from make-decision)
+- **Rationale:** why you reached that verdict
+- **Per-finding detail:** each issue found, with file:line attribution and whether
+  it is blocking, a suggestion, or a question
+- **Operator-decision items:** ANYTHING a maintainer must sign off on before merge
+  (tradeoffs, scope calls, risk acceptance). Call these out explicitly under a
+  clearly-labeled section — this is the part a human must act on.
+- **Test assessment:** CI status + whether coverage is adequate
+- **Follow-up beads:** IDs of any beads you'll file (or filed) in the next step
+
+**Header the comment** so it reads as a relayed Gastown review:
+
+```
+🤖 Gastown review — <VERDICT> (tracking {{issue}})
 ```
 
-**2. Add inline comments if needed:**
-If you have specific line-by-line feedback, add those via GitHub UI
-or additional `gh pr comment` calls.
+Write the body to a file to avoid shell-quoting hazards with multi-line content:
 
-**Exit criteria:** Review submitted on GitHub."""
+```bash
+cat > /tmp/gastown-review-{{issue}}.md <<'EOF'
+🤖 Gastown review — REQUEST_CHANGES (tracking {{issue}})
+
+## Verdict
+REQUEST_CHANGES
+
+## Rationale
+<why>
+
+## Findings
+- [BLOCKING] path/to/file.go:42 — <detail>
+- [SUGGESTION] ...
+- [QUESTION] ...
+
+## Operator decisions required
+- <thing the maintainer must sign off on before merge>
+
+## Tests
+<CI status + coverage assessment>
+
+## Follow-ups
+- <bead-id>: <title>
+EOF
+```
+
+## 2. Determine identity (KbotSB preferred, operator fallback)
+
+The review-bot identity is **KbotSB** (`mayor/credentials/kbotsb.token`). Prefer it
+when it authenticates AS the bot. But as of this writing KbotSB authenticates as the
+OPERATOR, not the bot (escalation sbx-gastown-tzpay) — so a genuine bot path is often
+unavailable. Detect the current identity before deciding how to post:
+
+```bash
+gh auth status   # shows the logged-in account for the active token
+```
+
+- **Bot path available** — the active identity IS the KbotSB bot account:
+  you MAY post a formal review STATE in addition to the comment (see step 3).
+- **Fallback (operator identity)** — the active identity is the operator (the tzpay
+  state), or KbotSB is otherwise unavailable: post the review CONTENT via
+  `gh pr comment` under whatever identity is available. Operator-identity comments
+  are **explicitly acceptable** as the interim behavior until the KbotSB fix lands.
+
+Either way, the content comment gets posted. There is no branch where the PR
+receives nothing.
+
+## 3. Post the content comment (ALWAYS)
+
+```bash
+gh pr comment {{pr_url}} --body-file /tmp/gastown-review-{{issue}}.md
+```
+
+This is the mandatory deliverable and runs on BOTH the bot path and the fallback.
+
+**Formal review STATE — bot path ONLY.** Only when step 2 confirmed the genuine
+KbotSB bot identity, you MAY additionally submit a formal review state:
+
+```bash
+# ONLY when authenticated as the KbotSB bot:
+gh pr review {{pr_url}} --approve         --body-file /tmp/gastown-review-{{issue}}.md   # APPROVE
+gh pr review {{pr_url}} --request-changes --body-file /tmp/gastown-review-{{issue}}.md   # REQUEST_CHANGES
+gh pr review {{pr_url}} --comment         --body-file /tmp/gastown-review-{{issue}}.md   # NEEDS_DISCUSSION
+```
+
+> ⚠️ Do NOT run `gh pr review --approve/--request-changes` under the OPERATOR
+> identity. GitHub rejects self-approval and a formal state under the wrong identity
+> is misleading. Under the fallback, the `gh pr comment` post from above is the
+> complete deliverable — do not attempt a formal review state.
+
+## 4. Record the verdict on the tracking bead (backstop — ALWAYS)
+
+Independently of the PR post, always record the verdict on {{issue}} so it survives
+even if the PR post fails:
+
+```bash
+bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Identity: <kbotsb-bot|operator-fallback>."
+```
+
+**Exit criteria:** The full review CONTENT is a comment on the PR (verified with
+`gh pr view {{pr_url}} --comments`), and the verdict is recorded on {{issue}}."""
 
 [[steps]]
 id = "file-followups"
