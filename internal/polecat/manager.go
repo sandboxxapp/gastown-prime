@@ -647,7 +647,10 @@ func (m *Manager) AllocateAndAdd(opts AddOptions) (string, *Polecat, error) {
 
 	m.reconcilePoolInternal()
 
-	name, err := m.namePool.Allocate()
+	// Gate on liveness so a name whose prior occupant is still settling
+	// (process alive / session lingering after its worktree was removed) is not
+	// recycled into a fresh polecat — see nameHasLiveOccupant (sbx-gastown-gsyki).
+	name, err := m.namePool.AllocateAvoidingLive(m.nameHasLiveOccupant)
 	if err != nil {
 		_ = poolLock.Unlock()
 		return "", nil, err
@@ -1270,7 +1273,9 @@ func (m *Manager) AllocateName() (string, error) {
 	// Reconcile without re-acquiring the pool lock
 	m.reconcilePoolInternal()
 
-	name, err := m.namePool.Allocate()
+	// Gate on liveness so a name whose prior occupant is still settling is not
+	// recycled — see nameHasLiveOccupant (sbx-gastown-gsyki).
+	name, err := m.namePool.AllocateAvoidingLive(m.nameHasLiveOccupant)
 	if err != nil {
 		return "", err
 	}
@@ -1660,6 +1665,36 @@ func (m *Manager) ReuseIdlePolecat(name string, opts AddOptions) (*Polecat, erro
 //
 // In addition to directory checks, this also:
 // - Kills orphaned tmux sessions (sessions without directories are broken)
+// nameHasLiveOccupant reports whether a themed name still has a live session or
+// agent process from a prior polecat that has not been fully reaped. It is the
+// namepool's allocation liveness gate (sbx-gastown-gsyki): a recycled name must
+// not be handed out while the deacon is still reconciling its previous occupant,
+// or the reaper's branch-keyed identity gate strands the fresh polecat.
+//
+// It reuses the existing liveness signals rather than inventing a new mechanism
+// or coupling to the deacon's state.json:
+//   - session.PolecatProcessAlive — the strict-marker process check the reaper
+//     uses (killOrphanedPolecatProcess). This is the decisive signal: a leaked or
+//     reparented agent process survives tmux-session death AND worktree removal,
+//     which is the exact window in which a name would otherwise be reallocated.
+//   - tmux session + heartbeat liveness (isSessionProcessDead) — covers a
+//     still-attached, heads-down prior occupant whose worktree is already gone.
+func (m *Manager) nameHasLiveOccupant(name string) bool {
+	if session.PolecatProcessAlive(m.rig.Name, name) {
+		return true
+	}
+	if m.tmux != nil {
+		sessionName := session.PolecatSessionName(session.PrefixFor(m.rig.Name), name)
+		if alive, _ := m.tmux.HasSession(sessionName); alive {
+			townRoot := filepath.Dir(m.rig.Path)
+			if !isSessionProcessDead(m.tmux, sessionName, townRoot) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (m *Manager) ReconcilePool() {
 	fl, err := m.lockPool()
 	if err != nil {

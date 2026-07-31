@@ -310,12 +310,39 @@ func (p *NamePool) Save() error {
 	return util.AtomicWriteJSON(p.stateFile, state)
 }
 
+// NameLivenessFunc reports whether a still-live session or process exists for
+// the given themed name — i.e. a prior occupant that has not been fully reaped.
+// AllocateAvoidingLive skips such names. It is nil-safe: a nil predicate means
+// "no liveness gate" (directory-derived InUse is the only availability test).
+type NameLivenessFunc func(name string) bool
+
 // Allocate returns a name from the pool using a round-robin scan from NextIndex.
 // Without the cursor, freed names at the head of the list get re-picked
 // immediately on the next allocation, clustering polecats on the first few
 // theme entries (see sbx-gastown-uzrj). Falls back to overflow names when
 // every themed slot is in use.
+//
+// Allocate applies no liveness gate — callers that must not recycle a name whose
+// prior occupant is still settling use AllocateAvoidingLive.
 func (p *NamePool) Allocate() (string, error) {
+	return p.AllocateAvoidingLive(nil)
+}
+
+// AllocateAvoidingLive is Allocate with an added liveness gate: a themed name is
+// treated as unavailable while isLive reports a still-live session or process for
+// a prior occupant that has not been fully reaped. This closes the recycled-name
+// window (sbx-gastown-gsyki): a name became directory-free — Reconcile cleared
+// its InUse flag when the worktree was removed — but its prior polecat's process
+// and the deacon's reap bookkeeping were still settling, which confused the
+// reaper's branch-keyed identity gate and stranded the fresh polecat
+// (sbx-gastown-runwl).
+//
+// The round-robin cursor (NextIndex) semantics are unchanged: a live name is
+// passed over exactly like an in-use one, and the cursor only advances onto the
+// name actually claimed. Falls through to overflow numbering only when every
+// themed name is genuinely occupied-or-unsettled, matching the existing
+// exhaustion path.
+func (p *NamePool) AllocateAvoidingLive(isLive NameLivenessFunc) (string, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -334,15 +361,23 @@ func (p *NamePool) Allocate() (string, error) {
 		for i := 0; i < limit; i++ {
 			idx := (start + i) % limit
 			name := names[idx]
-			if !p.InUse[name] {
-				p.InUse[name] = true
-				p.NextIndex = (idx + 1) % limit
-				return name, nil
+			if p.InUse[name] {
+				continue
 			}
+			// Prior occupant not fully reaped — skip without claiming and
+			// without advancing the cursor onto it; a later allocation re-tests
+			// the name once it has settled.
+			if isLive != nil && isLive(name) {
+				continue
+			}
+			p.InUse[name] = true
+			p.NextIndex = (idx + 1) % limit
+			return name, nil
 		}
 	}
 
-	// Pool exhausted, use overflow naming
+	// Pool exhausted (or every free themed name still has a live, not-yet-reaped
+	// prior occupant), use overflow naming.
 	name := p.formatOverflowName(p.OverflowNext)
 	p.OverflowNext++
 	return name, nil

@@ -48,8 +48,12 @@ type orphanKillResult struct {
 // STRICT substring match. The marker embeds both name and rig, so it uniquely
 // identifies one polecat — never use a loose "polecat"/"GAS TOWN" grep, which
 // could collide with and kill an unrelated process.
+//
+// Delegates to session.PolecatProcessMarker, the single source of truth shared
+// with the namepool's settled-name allocation gate (sbx-gastown-gsyki), so the
+// reaper and the allocator agree on exactly which process identifies a polecat.
 func polecatProcessMarker(rig, polecat string) string {
-	return "[GAS TOWN] " + session.BeaconRecipient("polecat", polecat, rig)
+	return session.PolecatProcessMarker(rig, polecat)
 }
 
 // killOrphanedPolecatProcess finds a polecat's claude process by strict marker
