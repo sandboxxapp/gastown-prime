@@ -1,150 +1,97 @@
 formula = "laws-context-db"
-description = "Operating doctrine: how every dispatched role uses the context-db knowledge service — context-db-FIRST orientation (before scoping any BUILD/DISPATCH/SPEC, not just before reading source), orientation-only retrieval via the correct per-role tool, gap-surfacing on a miss, persisting the orient-first reflex to your own memory, and emitting findings + usage/orientation self-feedback as durable notes the archivist folds into canonical knowledge."
-version = 5
+description = "Operating doctrine: how every dispatched role uses the context-db knowledge service — context-db-FIRST orientation (before scoping any BUILD/DISPATCH/SPEC, not just before reading source), orientation-only retrieval via the correct per-role door, gap-surfacing on a miss, persisting the orient-first reflex to your own memory, and emitting findings + usage/orientation self-feedback as durable notes the archivist folds into canonical knowledge. SPLIT under sbx-gastown-2ey6o: this file carries the inline SAFETY CORE (#0, #1, #2, #5); laws #3, #4, #6, #7, #8 and the foreman carve-out are the context-db-resolved TAIL at concept bridge.laws.context-db."
+version = 6
 type = "constraint"
 phase = "active"
+
+# ⚠️ THIS FILE IS THE BOOTSTRAP LAW AND IT IS SPLIT. [rule].summary is capped by
+# Claude Code's hard, non-configurable 10,000-char additionalContext limit; over-cap
+# content is SPILLED to a file with only a ~2 KB preview reaching the session, so a
+# tail that exceeds it does not truncate, it DISAPPEARS. Keep this core SMALL — it is
+# the law that teaches the door every other law tail is fetched through.
+# Budget enforced by scripts/check-laws-cap.sh. Add new law text to the TAIL
+# (rigs/bridge/domain/laws/context-db.md -> concept bridge.laws.context-db), not here.
 
 [rule]
 scope = "all-roles"
 severity = "escalation"
 summary = """
-CONTEXT-DB DOCTRINE
+CONTEXT-DB DOCTRINE — SAFETY CORE
 
-Gastown runs a context-db — a GraphRAG knowledge service over the rig domain libraries
-(context/**/*.json, served by the local container; see context-db/TOUCHPOINTS.md). It is your
-FIRST LOOKUP for any Sandboxx domain question: orient there BEFORE you SCOPE A BUILD, A DISPATCH,
-OR A SPEC — and before you grep source, read a rig file, or query a live system. The knowledge you
-need has almost certainly been captured already, and the db is the shortest path to it — so
-consulting it first is a PRECONDITION of every role's work, not a convenience (this mirrors mayor
-#0 and mayor #12 "read the rig domain before grepping any source"). First-lookup does NOT mean
-source-of-truth: you orient in the db, then verify the exact fact at the source (#1). And a MISS is
-not a dead end — it is a KNOWN GAP to record (#6), so the corpus shortens the next agent's path.
-When CONTEXT_DB_URL is set, your primed context may include a "Retrieved Domain Context
-(orientation only)" block, and a retrieval tool is available in your environment — WHICH tool
-depends on who you are (#2). This is how every role uses it.
+⚠️ THIS IS A SPLIT LAW. What follows is the CORE: the doctrine plus #0, #1, #2 and #5. Laws #3,
+#4, #6, #7, #8 and the foreman carve-out are the LAW TAIL — NOT INLINE (last block, below).
+This law is the BOOTSTRAP: it teaches you the door every other role's law tail is fetched
+through, so it is kept small on purpose and does not grow.
 
-ORIENTATION (law #0) COMES BEFORE SCOPING, NOT JUST BEFORE READING SOURCE. The sharp failure mode
-is not merely "read source without orienting" — it is scoping a BUILD / DISPATCH / PR-spec from
-momentum ("this is obviously new work"), reaching for a source-grep only to confirm mechanics, and
-REBUILDING a capability that already existed and was already documented. Draw the line crisply: a
-grep or a source read is VERIFY-AT-SOURCE (law #12), NEVER orientation (law #0). Source is step 3
-(confirm the exact fact you will act on); it is never step 1 (discover WHETHER the thing exists —
-that is what orientation answers). TRIP-WIRE: if you are about to write a build, a dispatch, or a
-spec for a capability you have NOT queried the corpus for, STOP and query first — the thing may
-already exist. Worked example — the t2k2n near-miss (2026-07-29): an agent scoped a build from
-momentum, grepped source to "see how it works," and nearly rebuilt an existing `--gcp` /
-authzproxy feature that was already shipped and documented. Querying first would have turned a
-near-rebuild into a one-line reuse.
+Gastown runs a context-db — a GraphRAG knowledge service over the ~20 rig domain libraries
+(source of truth: context/**/*.json; see context-db/TOUCHPOINTS.md). It is your FIRST LOOKUP for
+any Sandboxx domain question. Consulting it first is a PRECONDITION of every role's work, not a
+convenience (mirrors mayor #0 and mayor #12). First-lookup does NOT mean source-of-truth: you
+orient in the db, then verify the exact fact at the source (#1). A MISS is not a dead end — it is
+a KNOWN GAP to record (#6, in the tail), so the corpus shortens the next agent's path.
 
-⚠️ ONE ROLE IS CARVED OUT: THE FOREMAN (sbx-gastown-fzzn1). Everything below binds every
-dispatched role EXCEPT the foreman handling a PR review conversation. The foreman INHERITS its
-domain orientation from the reviewer and the originating bead — that context arrives
-pre-digested and already argued — and it escalates when the inherited brief is insufficient
-rather than orienting for itself. This keeps domain judgement in exactly ONE place per PR, so a
-wrong call has one agent's reasoning to inspect rather than two overlapping ones. The narrowing
-is about SCOPE and DOMAIN THEORIES only: the foreman still reads the code it changes and still
-runs the gates, because verification is not invention. See laws-foreman #9. Note that the
-foreman inheriting orientation is only sound if the ROLES IT INHERITS FROM actually orient —
-which makes law #0 more load-bearing for the reviewer and the implementing polecat, not less.
+#0 ORIENT BEFORE YOU SCOPE — not merely before you read source.
+The sharp failure mode is not "read source without orienting". It is scoping a BUILD / DISPATCH /
+PR-SPEC from momentum ("this is obviously new work"), reaching for a source-grep only to confirm
+mechanics, and REBUILDING a capability that already existed and was already documented. Draw the
+line crisply: a grep or a source read is VERIFY-AT-SOURCE (#1), NEVER orientation. Source is step
+3 — confirm the exact fact you will act on. It is never step 1 — discover WHETHER the thing
+exists. TRIP-WIRE: about to write a build, a dispatch, or a spec for a capability you have NOT
+queried the corpus for? STOP and query first. Worked example — the t2k2n near-miss (2026-07-29):
+an agent scoped from momentum, grepped source to "see how it works", and nearly rebuilt an
+existing --gcp / authzproxy feature that was already shipped and already documented.
 
-1. ORIENTATION ONLY — never the source of truth. Retrieved domain context is a MAP, not gospel.
-   For any EXACT or CURRENT fact — live infrastructure state, compliance/test status, production
-   data, a specific file:line or function signature, a secret — VERIFY AT THE SOURCE (read the
-   code, query the live system, check the live config). Never treat a retrieved chunk as
-   authoritative current state. Each chunk carries its source path + updated_at + provenance —
-   use them to go verify.
+#1 ORIENTATION ONLY — never the source of truth. Retrieved domain context is a MAP, not gospel.
+For any EXACT or CURRENT fact — live infrastructure state, compliance/test status, production
+data, a specific file:line or function signature, a secret — VERIFY AT THE SOURCE. Never treat a
+retrieved chunk as authoritative current state. Each chunk carries its source path + updated_at +
+provenance; use them to go verify.
 
-2. QUERY LIVE — don't rely only on the start-of-dispatch seed. As your work surfaces new topics,
-   pull more domain context. HOW depends on who is calling — use the MOST UP-TO-DATE tool for YOUR
-   environment (they are not interchangeable):
-   - **Dispatched gastown agents** (polecats, foremen, prospectors, archivists) run
-     the **AGENT DOOR** — a minted ID token against the hosted Cloud Run service. This is the path
-     that works inside a gastown session TODAY, from ANY cwd, with no bridge checkout, no
-     `gcloud run services proxy`, and no MCP registration:
-       CTX=https://context-db-2hazwepeiq-uc.a.run.app
-       TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" \
-               2>/dev/null || gcloud auth print-identity-token)
-       curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-         -X POST "$CTX/search" -d '{"query":"...","filters":{"rig":"<rig>"},"top_k":5}'
-       curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
-     The mint script defaults to --impersonate (the ctx-db-invoker SA); the bare fallback must NOT
-     pass --audiences, because a USER ADC cannot mint an audience-scoped ID token. Probe liveness
-     with `GET /agents` (200) — `/healthz` is 404 by design. Use `top_k`, NOT `limit`.
-     Do NOT use `ctx query` — `ctx` is not on PATH in a dispatched session (~/bin is neither
-     created nor on PATH). Do NOT depend on an MCP from within a dispatched session.
-   - **Humans, the mayor, and their own Claude/Cursor agents** should PREFER the context-db MCP:
-     register the one `mcpServers` entry shipped in `context-db/plugin` (see `context-db/USING.md`
-     §6). It is HEADERS-FIRST (two-phase): `search_corpus` returns an INDEX per hit (summary + `##`
-     section outline, NOT the body) — read it to pick a concept, then `get_concept(concept_id[,
-     section])` to open that body (or one section) on demand. Also `submit_note` to contribute /
-     `get_doctrine` for the live, always-current contract — align to `get_doctrine`, not to any
-     doc's copy of it. STALENESS CHECK (lived 2026-07-20): if `search_corpus` returns full bodies or
-     `get_concept` is absent, your MCP subprocess predates the #125 headers-first build — reconnect /
-     restart the session before relying on it. FALLBACK when the MCP isn't registered: run the gcloud
-     auth proxy and `POST localhost:8080/search` directly (that raw endpoint stays full-body; the
-     MCP rides the same proxy over your ADC).
-   Rig-filter your queries either way — filtered retrieval is much sharper than unfiltered.
+#2 QUERY LIVE — and use the door that matches WHO YOU ARE. The doors are NOT interchangeable.
+• DISPATCHED GASTOWN AGENTS (polecat, foreman, prospector, archivist, deacon) and the MAYOR use
+  the TOKEN GATE — a minted ID token against the hosted Cloud Run service. This works inside a
+  gastown session from ANY cwd: no bridge checkout, no `gcloud run services proxy`, no MCP.
+    CTX=https://context-db-2hazwepeiq-uc.a.run.app
+    TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null || gcloud auth print-identity-token)
+    curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$CTX/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
+  Traps, all measured: the mint script defaults to --impersonate (the ctx-db-invoker SA), and the
+  bare fallback must NOT pass --audiences, because a USER ADC cannot mint an audience-scoped ID
+  token. filters.rig is NESTED — a top-level "rig" is silently dropped. Use top_k, NOT limit.
+  /search and /notes are POST (so GET /search = 405); a concept fetch is GET /concept/{id} (so
+  POST /concept = 404). Do NOT use `ctx query` — `ctx` is not on PATH in a dispatched session.
+  🛑 PROBE THE PATH YOU DEPEND ON — POST /search, never GET /agents. /agents has returned 503
+  while the read paths served correctly (sbx-gastown-yd4as), and /healthz is 404 by design.
+  Gating orientation on /agents tells you the corpus is down while it is in fact serving.
+• THE PRESSMAN uses the HOSTED MCP — https://mcp-context-db.sandboxx.us/mcp — NOT the token gate.
+  The pressman runs on WINDOWS print servers via pressman.ps1, where the local stdio launcher in
+  .mcp.json (a POSIX `sh -c`, bridge-only) cannot run at all. See laws-pressman #2.
+• HUMANS and their own Claude/Cursor agents PREFER the context-db MCP: register the one
+  `mcpServers` entry shipped in context-db/plugin (context-db/USING.md §6). It is HEADERS-FIRST:
+  search_corpus returns an INDEX per hit (summary + `##` section outline, NOT the body) — read it
+  to pick a concept, then get_concept(concept_id[, section]) opens that body on demand. Also
+  submit_note to contribute and get_doctrine for the live contract; align to get_doctrine, not to
+  any doc's copy of it. STALENESS CHECK (lived 2026-07-20): if search_corpus returns full bodies
+  or get_concept is absent, your MCP subprocess predates the #125 headers-first build — reconnect
+  before relying on it.
+RIG-FILTER every query, whichever door you use. Filtered retrieval is far sharper than unfiltered.
 
-3. THE LIVE SOURCE WINS over the chunk. The corpus is a periodic snapshot; a concept can be stale
-   or wrong (newer concepts rank higher, but recency is not correctness). If a retrieved concept
-   contradicts the live code/state, trust the live source AND record the discrepancy in a note —
-   that flags the concept for re-curation by the archivist.
+#5 NO SECRETS / PII IN THE DB — and this one is IRREVERSIBLE, so it binds you even if you never
+reach the corpus at all. The context-db holds domain knowledge ONLY. Never put credentials,
+tokens, keys, or member PII into a note or a concept; those live at the source, never in
+retrieval. A secret written into a note cannot be unwritten — the note is drained, folded,
+embedded, and snapshotted into an immutable versioned object.
 
-4. EMIT WHAT YOU LEARN — as durable NOTES, not canonical edits. When you discover something durable
-   about the domain (a correction, a non-obvious fact, a gotcha, a "concept X is stale"), write it
-   as a domain note (rigs/<rig>/domain/notes/<topic>.md, or rigs/bridge/domain/notes/ for
-   cross-cutting), source-attributed. These notes are the context-db CANDIDATE layer: the archivist
-   folds them into canonical concepts, and the fold flows back into the next dispatch's seed. Do NOT
-   write or edit the canonical concept JSON under context/ directly — promotion to canonical is the
-   archivist's job (the ONE exception: the prospector authors canonical concepts on a sweep; see
-   laws-prospector). Knowledge that dies with your session is wasted work.
-
-5. NO SECRETS / PII IN THE DB. The context-db holds domain knowledge only. Never put credentials,
-   tokens, keys, or member PII into a note or concept — those live at the source, never in retrieval.
-
-6. A MISS IS A KNOWN GAP — surface it, don't just move on. When a domain question returns nothing, a
-   weak / low-score hit, or a chunk the live source contradicts, that gap is itself a finding: it is
-   how "we know which gaps need filling." After you verify the answer at the source, CAPTURE it —
-   `submit_note` (MCP callers) or file a `rigs/<rig>/domain/notes/<topic>.md` note (dispatched roles),
-   source-attributed — so the archivist folds it into canonical knowledge. This is the SAME
-   candidate→canonical flow as #4 (only the archivist, and the prospector on sweep, promote), and it
-   is what shortens the NEXT agent's path: the miss you hit today should be a hit tomorrow. A gap you
-   verified-at-source but did NOT record is wasted work — the next agent re-derives it from scratch.
-
-7. PERSIST THE ORIENT-FIRST REFLEX TO YOUR OWN MEMORY — re-reading this formula each dispatch is not
-   enough; make the reflex yours. Persist the habit — "orient (law #0) BEFORE scoping any
-   build/dispatch/spec, and before grepping source" — to whatever PERSISTENT-MEMORY mechanism YOU own:
-   - Dispatched gastown agents (polecats, foremen, prospectors, archivists): `bd remember` it. That is
-     this project's persistent-knowledge mechanism (root Project CLAUDE.md) — NOT a MEMORY.md file.
-   - The mayor, and bare-Claude/Cursor users running the context-db claude-kit/plugin: your auto-memory
-     dir — a `type: feedback` memory carrying the reflex, plus its one-line MEMORY.md index pointer.
-   ⚠ SCOPE — reflex only, never domain facts. This self-memory instruction is for the HABIT ("I orient
-   first"), nothing else. DURABLE GASTOWN KNOWLEDGE — architecture, role contracts, lifecycle behavior,
-   integrations — still belongs in the rig domain library or a formula (mayor #12/#13, polecat #12),
-   NEVER private per-instance memory (it is invisible to the next agent). Do not use this instruction as
-   license to stash domain facts in your own memory — that is the exact anti-pattern #12/#13 forbid.
-
-8. SELF-FEEDBACK — REPORT YOUR OWN ORIENTATION ANTI-PATTERNS, UNPROMPTED. When you notice, during your
-   own work, that ORIENTATION ITSELF misfired — this is DISTINCT from a content gap (#6) — emit a short
-   self-feedback note (a sentence or two), WITHOUT being asked and with no operator in the loop:
-   - #6 surfaces a CONTENT gap: a query MISS or a live-source-contradicts-corpus finding → the corpus
-     needs a concept authored / re-curated (it reports what the corpus LACKS).
-   - #8 surfaces a USAGE / ORIENTATION-EXPERIENCE anti-pattern: HOW orientation went, not what was
-     missing. Examples: "I skipped orientation and rebuilt X — the reflex didn't fire"; "search_corpus
-     returned 6 hits but the index summaries were too vague to pick the right concept"; "headers-first
-     forced 4 get_concept round-trips for one answer"; "rig-filter returned nothing so I broadened and
-     got noise"; "doctrine said prefer-MCP but it wasn't registered, so I fell back to `ctx query`".
-   Emit via `submit_note` (MCP callers) or a `rigs/<rig>/domain/notes/<topic>.md` note (dispatched
-   roles), tagged `context-db usage/orientation feedback`. The archivist collates these into a
-   dedicated concept — `bridge.knowledge.context-db-usage-feedback` — so patterns accumulate and the
-   orientation system SELF-IMPROVES without operator prompting. Same hygiene as any note: no
-   secrets/PII, context-attributed. Together, #0 -> #7 -> #8 close the loop: orient-first ->
-   persist-the-reflex-to-your-own-memory -> report-how-orientation-went-so-the-system-learns.
-
-The flywheel — your notes -> archivist fold -> re-embed -> the next dispatch's seed — is what keeps
-the knowledge fresh and lean. Feeding it well is part of every role's job. Two pre-canonical tiers
-feed it: candidate (your active-use notes) and investigation (one-off findings/incident/runbook
-docs); the archivist curates both UPWARD into the canonical rig domain docs. Usage/orientation
-self-feedback (#8) is a THIRD input to the same fold: it improves not the corpus's content but how
-agents ORIENT over it — the system learning from its own users, unprompted.
+LAW TAIL — NOT INLINE. Laws #3 (the live source wins over the chunk), #4 (emit what you learn as
+notes; never edit canonical JSON under context/), #6 (a miss is a KNOWN GAP — record it), #7
+(persist the orient-first reflex to your own memory), #8 (self-feedback when orientation ITSELF
+misfires), the FOREMAN CARVE-OUT (the foreman inherits orientation and does not orient for
+itself — laws-foreman #9), and the flywheel. Fetch the tail:
+    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/bridge.laws.context-db"
+Local fallback, readable from ANY worktree because $GT_ROOT is set in every polecat env:
+    cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/context-db.md
+🛑 IF YOU CAN REACH NEITHER, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO — in
+your first response and on your bead. (c) Stay safe: the core above is enough to keep you SAFE
+but NOT enough to make you COMPLETE, so never infer that an absent law permits something. When in
+doubt, escalate instead of acting.
 """
