@@ -53,6 +53,8 @@ func (f *Formula) inferType() {
 		f.Type = TypeExpansion
 	} else if len(f.Aspects) > 0 {
 		f.Type = TypeAspect
+	} else if f.Rule != nil {
+		f.Type = TypeConstraint
 	}
 }
 
@@ -64,7 +66,7 @@ func (f *Formula) Validate() error {
 	}
 
 	if !f.Type.IsValid() {
-		return fmt.Errorf("invalid formula type %q (must be convoy, workflow, expansion, or aspect)", f.Type)
+		return fmt.Errorf("invalid formula type %q (must be convoy, workflow, expansion, aspect, or constraint)", f.Type)
 	}
 
 	// Type-specific validation
@@ -77,6 +79,8 @@ func (f *Formula) Validate() error {
 		return f.validateExpansion()
 	case TypeAspect:
 		return f.validateAspect()
+	case TypeConstraint:
+		return f.validateConstraint()
 	}
 
 	return nil
@@ -206,6 +210,22 @@ func (f *Formula) validateAspect() error {
 		seen[aspect.ID] = true
 	}
 
+	return nil
+}
+
+// validateConstraint checks a laws-* formula. Constraint formulas carry rule
+// prose instead of executable steps, so there is nothing to order or sling —
+// the only requirement is that the rules are actually present.
+func (f *Formula) validateConstraint() error {
+	if f.Rule == nil {
+		return fmt.Errorf("constraint formula requires a [rule] section")
+	}
+	if strings.TrimSpace(f.Rule.Summary) == "" {
+		return fmt.Errorf("constraint formula requires rule.summary")
+	}
+	if len(f.Steps) > 0 || len(f.Legs) > 0 || len(f.Template) > 0 || len(f.Aspects) > 0 {
+		return fmt.Errorf("constraint formula must not define steps, legs, template, or aspects")
+	}
 	return nil
 }
 

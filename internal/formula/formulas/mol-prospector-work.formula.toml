@@ -1,0 +1,478 @@
+description = """
+Full prospector work lifecycle: domain research dispatch that produces
+structured rig-domain documentation.
+
+A prospector is a polecat specialized in domain research (see `laws-prospector`
+for the constraint overlay). Unlike the generic `mol-polecat-work`, the
+prospector does not implement code, does not run a test suite, and does not
+ship a feature PR. Its deliverable is a domain doc file (or consolidation)
+under `rigs/<rig>/domain/` that follows the seven standard headings enforced
+by `laws-prospector`:
+
+(The SUBJECT may be one of our own rigs OR an EXTERNAL framework/repo/web source.
+External-framework research uses this same formula with `rig=informant` and
+`target_file=<framework>/<aspect>.md`, plus the map-to-gastown framing in
+`laws-prospector` — this replaces the retired informant role. Worked example:
+mattpocock/skills, bead sbx-gastown-w9w0n.)
+
+  ## Overview
+  ## Key entities
+  ## Key flows
+  ## Hooks & invariants
+  ## Gotchas
+  ## Cross-refs
+  ## Open questions
+
+## Prospector Contract (Dispatch-and-Kill Model)
+
+You are a dispatch-and-kill research worker. You:
+1. Receive the research assignment via your hook (bead + this molecule)
+2. Scaffold the target file with the seven standard headings and a staleness
+   marker at the top (`<!-- prospected: YYYY-MM-DD from commit <sha> -->`)
+3. Read source deeply — follow imports, trace data flows, attribute every
+   claim to `file:line`
+4. Integrate findings into the taxonomy; delete superseded fragmented files
+5. Run `gt exit` to close your session — the daemon handles cleanup
+
+**Important:** This formula defines the workflow template. Steps are shown
+inline when you run `gt prime` — there are no separate step beads to close.
+Work through the checklist, then run `gt exit`.
+
+**You do NOT:**
+- Write production code, run test suites, or run build commands
+- Open a PR against main on a child repo — prospector output commits are
+  additive, do not carry app logic, and the mayor folds them onto
+  `main` (the bridge trunk; capitol was retired 2026-08-17, sbx-gastown-kme8t)
+- Merge anything
+
+## Variables
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| issue | hook_bead | The prospector bead you're assigned to |
+| rig | bead label / sling var | The rig whose domain docs you populate |
+| target_file | bead description / var | Relative path under `rigs/<rig>/domain/` (e.g. `users/referrals.md`). Optional — may be discovered from the bead description. |
+| base_branch | sling vars | Base branch to rebase on (default: main) |
+
+## Failure Modes
+
+| Situation | Action |
+|-----------|--------|
+| Source unreadable / missing | Record the gap in `## Open questions` and continue |
+| Cross-rig cross-ref unverified | List in `## Open questions`, do NOT assert it |
+| Scope too large for one session | Scaffold + populate the verifiable subset, list the rest in `## Open questions`, persist findings to bead, `gt exit` |
+| Existing domain file conflicts | Consolidate per law 8a (superseded files get deleted; commit message notes what was merged) |
+| Can't determine commit sha | Run `git -C <rig-worktree> log -1 --format=%H` — if rig worktree is unknown, use `git log -1 --format=%H` in the repo you're reading |
+
+## Turn-Note Discipline
+
+Prospectors write turn notes to the bead so the mayor can monitor in-flight
+research and the archivist can reconstruct the reasoning that shaped the doc.
+
+a. WHEN TO WRITE — After any meaningful action:
+     - Priming complete (hook + bead + existing domain notes + closed-bead
+       turn-notes touching the research area)
+     - Scaffold written (file created with headings + staleness marker)
+     - Discovery pass complete (a subsystem read end-to-end)
+     - Section populated and committed
+     - Superseded files deleted
+     - Backtrack (discarded a hypothesis — include WHY)
+
+   ```bash
+   bd update {{issue}} --notes "turn N: <one-line summary>. <why, if non-obvious>."
+   ```
+
+b. WHEN NOT TO WRITE — Skip for pure navigation (ls/grep/glob). One note per
+   logical action, not per tool call.
+
+c. FORMAT — `turn N:` prefix, one line. Cite file:line or commit sha; never
+   paste raw diff/tool output.
+
+d. DISTINCT GRAIN — Turn notes go on the bead (playback grain). `gt exit
+   --notes` writes findings to `rigs/<rig>/domain/notes/` (findings grain).
+   Both required."""
+formula = "mol-prospector-work"
+type = "workflow"
+version = 2
+
+[[steps]]
+id = "load-context"
+title = "Load context and read the research landscape"
+description = """
+Initialize your session and map the existing domain knowledge before you
+write anything new.
+
+**1. Prime your environment:**
+```bash
+gt prime                    # Load role context + formulas
+bd prime                    # Load beads context
+```
+
+**2. Preflight (validate connectivity):**
+```bash
+gt hook                     # Shows pinned molecule and hook_bead
+bd show {{issue}}           # Read your assignment
+```
+If `bd show` hangs: `gt dolt status`. If Dolt is down: `gt escalate -s HIGH
+"Dolt: <symptom>"` — do NOT restart it yourself.
+
+**3. Read the bead carefully:**
+- What subsystem / domain are you researching?
+- Is there a specified `target_file`, or must you choose one under
+  `rigs/{{rig}}/domain/<category>/<feature>.md`?
+- Are there fragmented files to consolidate?
+- What rig does this target? (Labels + description)
+
+**4. Read existing domain docs for {{rig}} (per laws-prospector § 8d):**
+```bash
+ls rigs/{{rig}}/domain/
+ls rigs/{{rig}}/domain/notes/        # Raw notes awaiting integration
+```
+If raw notes exist in `domain/notes/` that touch your research area, read
+them — you are the first archivist at initial-authoring time. Integrate
+their findings into your scaffold rather than leaving them for a later pass.
+
+**5. Read closed-bead turn-notes touching the research area (per laws-prospector § 8e):**
+```bash
+bd list --label {{rig}} --state closed
+# Then `bd show <id>` for beads that touch your subsystem.
+```
+Polecat turn-notes from closed beads carry reasoning that never made it
+into code. Incorporate confirmed findings; surface unconfirmed ones in
+`## Open questions`.
+
+**6. ORIENT — context-db agent door (BEFORE you scope the sweep):**
+
+You own the WRITE side, but READ first: orienting shows what is ALREADY captured, keeps you
+off covered ground, and points you straight at the GAPS — empty, weak, or stale hits are
+exactly the surface worth your sweep. Works from any cwd: no bridge checkout, no
+`gcloud run services proxy`, no MCP. (Do NOT use `ctx query` — `ctx` is not on PATH in a
+dispatched session; that door is dead.)
+
+```bash
+CTX=https://context-db-2hazwepeiq-uc.a.run.app
+TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
+        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+
+# 1. orient — returns an INDEX per hit (summary + `##` outline), NOT bodies
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X POST "$CTX/search" -d '{"query":"<subsystem you are prospecting>","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+
+# 2. open the ONE concept you picked
+curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
+```
+
+- Use `top_k`, NOT `limit` — `limit` is silently ignored.
+- Liveness probe is `GET /agents` → 200. `/healthz` is **404 by design**, not an outage.
+- A hit is a **MAP, never the value** — verify at source (law #4 source-attribution).
+- **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — but treat it as a stopgap, not a
+  substitute: the docs summarise, and expect to verify at source anyway. Never skip
+  orientation and go
+  straight to a deep-read.
+
+**7. Check your inbox:**
+```bash
+gt mail inbox
+# Read any assignment handoff from the mayor.
+```
+
+**8. Persist your landscape read:**
+```bash
+bd update {{issue}} --notes "turn N: landscape read complete. Existing docs: <list>. Notes to integrate: <list>. Closed beads touching area: <ids>."
+```
+
+**Exit criteria:** You know which file(s) you will author, what existing
+knowledge must be merged, and what superseded fragments will be deleted.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE load-context
+```"""
+
+[[steps]]
+id = "scaffold"
+title = "Scaffold target file with standard headings and staleness marker"
+needs = ["load-context"]
+description = """
+Create the target file(s) with the seven standard headings and the staleness
+marker BEFORE doing research. Scaffolding first makes it impossible to skip
+a section and keeps the reading pass focused on section-sized chunks.
+
+**1. Resolve the rig's worktree for the commit sha (per laws-prospector § 8c):**
+```bash
+# Prospector bridge-side invocation: the rig worktree sits at a known path
+# (per AGENTS.md label -> directory mapping). For sandboxx children:
+#     ../sandboxx/<rig>
+# For bridge-local rigs, the sha is the bridge HEAD.
+git -C ../sandboxx/{{rig}} log -1 --format=%H 2>/dev/null || git log -1 --format=%H
+```
+Record the sha — you will embed it in the staleness marker.
+
+**2. Determine the target path:**
+The bead description should specify `target_file` (e.g. `users/referrals.md`)
+or an equivalent. Full path:
+```
+rigs/{{rig}}/domain/<target_file>
+```
+Top-level directory under `domain/` is the domain tag; filename is the
+feature (per laws-prospector § 7). Use lowercase, hyphenated names. Do NOT
+create flat `architecture.md` files — split by domain/feature.
+
+**3. Create any parent directory if needed:**
+```bash
+mkdir -p rigs/{{rig}}/domain/<category>
+```
+
+**4. Write the scaffold:**
+Use your file-write tool to create the file with EXACTLY this skeleton
+(substitute TODAY's date, the sha from step 1, and the feature title):
+
+```markdown
+<!-- prospected: YYYY-MM-DD from commit <sha> -->
+# <category>/<feature>
+
+<one-paragraph summary of what this file covers and what it supersedes, if
+anything>
+
+## Overview
+
+TBD
+
+## Key entities
+
+TBD
+
+## Key flows
+
+TBD
+
+## Hooks & invariants
+
+TBD
+
+## Gotchas
+
+TBD
+
+## Cross-refs
+
+TBD
+
+## Open questions
+
+- TBD
+```
+
+**5. Persist scaffold in git (so research survives session death):**
+```bash
+git add rigs/{{rig}}/domain/<target_file>
+git commit -m "scaffold(prospector): {{rig}}/<category>/<feature> ({{issue}})"
+```
+
+**6. Turn note:**
+```bash
+bd update {{issue}} --notes "turn N: scaffold written at rigs/{{rig}}/domain/<target_file> with staleness marker <sha>."
+```
+
+**Exit criteria:** Target file exists in git with the seven standard
+headings and the staleness marker.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE scaffold
+```"""
+
+[[steps]]
+id = "research"
+title = "Read source deeply and attribute every claim"
+needs = ["scaffold"]
+description = """
+Read the source. This is the bulk of your work. Prospector value comes from
+depth, not breadth (laws-prospector § 1).
+
+**Working principles (from laws-prospector):**
+- READ DEEPLY, NOT BROADLY — Follow imports, read model definitions, trace
+  data flows end-to-end. Open actual files; do not skim READMEs and guess.
+  If a model has a field called `fac_user`, find where it's written, where
+  it's read, and what business logic depends on it.
+- SOURCE ATTRIBUTION — Every claim references `file:line`. Unattributed
+  prospector output is unverifiable and useless.
+- WRITE FOR THE SME REVIEWER — Audience is a foreman's SME reviewer catching
+  domain bugs in PRs, not a new-hire onboarding doc.
+
+**Read pattern per subsystem:**
+1. Start at the entry point named in the bead (an endpoint, a handler, a
+   model file).
+2. Follow imports until you hit external boundaries (DB, queue, HTTP).
+3. Identify persistence: models / tables / schemas touched.
+4. Identify hooks: `_pre_put_hook`, `_post_get_hook`, signals, listeners,
+   middleware, decorators.
+5. Identify invariants: guards, uniqueness constraints, transaction blocks,
+   idempotency keys.
+6. Identify cross-rig edges: calls to other services, shared IDs, webhooks.
+
+**For each finding, capture in a working scratchpad:**
+- The claim, one sentence.
+- The source: `file:line`.
+- Which section of the scaffold it belongs in.
+
+**Persist progress to the bead periodically (CRITICAL — session can die):**
+```bash
+bd update {{issue}} --notes "turn N: read <subsystem>. Found: <N entities>, <N flows>, <N hooks>. Next: <subsystem>."
+```
+For structured scratch, use `--design`:
+```bash
+bd update {{issue}} --design "<section-keyed findings>"
+```
+
+**Cross-rig references (laws-prospector § 3):**
+When a concept connects to another rig, note it with:
+```
+Cross-ref: <rig>.<domain>.<feature>
+```
+These cross-rig edges are the most valuable knowledge. If you cannot verify
+the other side, list it in `## Open questions` rather than asserting it.
+
+**Do NOT write into the scaffold yet** — integration is the next step. This
+step builds the evidence pile; the next step arranges it.
+
+**Exit criteria:** You have exhaustive file:line-attributed findings covering
+all seven sections for the target scope.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE research
+```"""
+
+[[steps]]
+id = "integrate"
+title = "Populate sections, mint open questions, delete superseded files"
+needs = ["research"]
+description = """
+Write findings into the scaffold and finalize the doc.
+
+**1. Fill each section:**
+
+| Section | Contents |
+|---------|----------|
+| ## Overview | One-paragraph narrative of the system end-to-end. Name the entry points and the key stages. |
+| ## Key entities | Each model / table / DTO, with fields, types, defaults, and required/optional. File:line for every entity. |
+| ## Key flows | Each end-to-end flow as a numbered sequence. Stage boundaries (sync/async, DB transaction, network call) called out. File:line for every hop. |
+| ## Hooks & invariants | Every `_pre_put_hook`, `_post_get_hook`, signal, middleware, guard. Every uniqueness constraint, transaction block, idempotency key. File:line for each. |
+| ## Gotchas | Non-obvious behavior that has bitten someone (or would bite a reviewer). Opportunistic side-effects, silent fallbacks, invariants that look enforced but aren't. |
+| ## Cross-refs | Confirmed cross-rig edges. Format: `Cross-ref: <rig>.<domain>.<feature>` with the callsite file:line on this side. |
+| ## Open questions | Every unverified claim, every flow you couldn't trace end-to-end, every cross-rig assertion you could not confirm. At least one item per entity or flow you couldn't fully verify (law 8b). |
+
+**2. Per-section memory summary (laws-prospector § 6):**
+If this rig indexes section-level bd-memory summaries, each `## <aspect>`
+section starts with a single-line summary (max 150 chars) suitable for
+`bd remember`. If the rig does not yet do this, a one-line lede at the
+top of each section is still good style.
+
+**3. Section completeness floor (laws-prospector § 8f):**
+No section may be left empty. If you genuinely found nothing (e.g. no
+hooks exist), write:
+```
+<!-- none found; verify with grep for _pre_put_hook, _post_get_hook -->
+```
+This distinguishes "checked and empty" from "skipped".
+
+**4. Delete superseded files (consolidation case):**
+If your new doc supersedes fragmented files (e.g. `referral-flow.md`,
+`referral-edge-cases.md`), delete them and call it out in the overview
+paragraph:
+```bash
+git rm rigs/{{rig}}/domain/<old-file-1>.md
+git rm rigs/{{rig}}/domain/<old-file-2>.md
+```
+Superseded-file deletion is part of integration, not a separate cleanup.
+
+**5. Delete processed notes (if you integrated from `domain/notes/`):**
+```bash
+git rm rigs/{{rig}}/domain/notes/<integrated-note>.md
+```
+
+**6. Commit the populated doc + deletions:**
+```bash
+git add rigs/{{rig}}/domain/
+git commit -m "docs({{rig}}): consolidate <category>/<feature> into rigs/{{rig}}/domain/<target_file> ({{issue}})"
+```
+
+**7. Turn note:**
+```bash
+bd update {{issue}} --notes "turn N: integration complete. Populated <target_file>. Superseded: <list>. Open questions: <count>."
+```
+
+**Exit criteria:** Target file populated end-to-end (every section has real
+content or an explicit `none found` marker); superseded files deleted;
+changes committed.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE integrate
+```"""
+
+[[steps]]
+id = "submit"
+title = "Exit session via gt exit (bridge-direct-to-capitol)"
+needs = ["integrate"]
+description = """
+Close out the session. Prospector output on bridge-managed rigs goes
+directly onto `main` — the mayor folds your commits onto main
+rather than opening a per-polecat PR (see user memory "Bridge direct to
+capitol" + bead working-convention note).
+
+**1. Final verification before exit:**
+```bash
+git status                                         # Should be clean
+git log origin/{{base_branch}}..HEAD --oneline     # Your commits
+```
+You should have at least two commits: the scaffold and the populated doc
+(possibly more if you committed incremental sections).
+
+**2. Persist final findings note for the archivist:**
+```bash
+gt exit --notes "Prospector complete: rigs/{{rig}}/domain/<target_file>. Superseded: <list or none>. Open questions: <count>. Key findings: <1-3 highlights>."
+```
+
+`gt exit` auto-commits any uncommitted work, pushes the branch, persists
+your notes, and exits. The findings note lands in
+`rigs/{{rig}}/domain/notes/` for archivist collation (findings grain,
+distinct from bead turn notes).
+
+**3. Do NOT open a PR and do NOT merge.**
+- Bridge-managed rigs (the bridge itself, gastown-prime): the mayor folds
+  your commits onto `main` directly.
+- Child-repo rigs (sandboxx-backend etc.): the mayor promotes your output
+  per the bridge-direct-to-capitol convention; a PR is not your deliverable.
+- Do NOT close the bead yourself. The archivist closes it after extracting
+  domain knowledge from your work.
+
+**What happens next (not your concern):**
+- The daemon detects your open bead + exited session → spawns an archivist
+- The archivist processes any `domain/notes/` entries, closes your bead
+- The daemon reaper cleans up your worktree
+
+**Exit criteria:** `gt exit` returned cleanly, session ended.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE submit
+```"""
+
+[vars]
+[vars.issue]
+description = "The prospector bead ID assigned to this session"
+required = true
+
+[vars.rig]
+description = "The rig whose domain docs this research populates (e.g. sandboxx-backend, waypoints-api, bridge). For external-framework research, use rig=informant (the notes/watchlist artifact home) with target_file=<framework>/<aspect>.md."
+required = true
+
+[vars.target_file]
+description = "Relative path under rigs/<rig>/domain/ (e.g. users/referrals.md). Optional — may be discovered from the bead description."
+default = ""
+
+[vars.base_branch]
+description = "Base branch for commit/compare reference (default: main)"
+default = "main"

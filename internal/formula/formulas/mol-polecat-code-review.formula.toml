@@ -42,7 +42,7 @@ beads created from it. Use `bd mol current` to find them - do NOT read this file
 | Can't understand code | Mail Witness for context |
 | Critical issue found | Mail Witness immediately, then continue |"""
 formula = "mol-polecat-code-review"
-version = 1
+version = 3
 
 [[steps]]
 id = "load-context"
@@ -89,9 +89,48 @@ git log --oneline -10 -- {{scope}}
 **Exit criteria:** You understand what you're reviewing and why."""
 
 [[steps]]
+id = "domain-context"
+title = "Orient on the scope's domain (context-db)"
+needs = ["load-context"]
+description = """
+Before surveying the code, orient on the review scope's domain — the read side of
+laws-context-db. Domain context lets you flag incorrect business logic, not just mechanical
+defects.
+
+Skim the primed "Retrieved Domain Context (orientation only)" block, then pull more through
+the **context-db agent door**. Works from any cwd: no bridge checkout, no
+`gcloud run services proxy`, no MCP. (Do NOT use `ctx query` — `ctx` is not on PATH in a
+dispatched session; that door is dead.)
+
+```bash
+CTX=https://context-db-2hazwepeiq-uc.a.run.app
+TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
+        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+
+# 1. orient — returns an INDEX per hit (summary + `##` outline), NOT bodies
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X POST "$CTX/search" -d '{"query":"<subsystem under {{scope}}>","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+
+# 2. open the ONE concept you picked
+curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
+```
+
+- Use `top_k`, NOT `limit` — `limit` is silently ignored.
+- Liveness probe is `GET /agents` → 200. `/healthz` is **404 by design**, not an outage.
+- **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — but treat it as a stopgap, not a
+  substitute: the docs summarise, and expect to verify at source anyway. Never skip
+  orientation and go straight to source.
+
+Orientation only: a concept points at invariants/gotchas to check — confirm any exact/current
+fact against the live code before filing a finding (the live source wins). This formula files
+review findings as beads; a durable domain fact also → a note for the archivist.
+
+**Exit:** oriented on the scope's domain, know how to query the agent door for more. No artifact."""
+
+[[steps]]
 id = "survey-code"
 title = "Survey the code structure"
-needs = ["load-context"]
+needs = ["domain-context"]
 description = """
 Get a high-level understanding before diving into details.
 

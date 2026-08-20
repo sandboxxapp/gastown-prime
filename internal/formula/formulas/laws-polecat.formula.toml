@@ -1,0 +1,238 @@
+formula = "laws-polecat"
+description = "Constraints for polecats -- the laws they must follow when executing work in any rig."
+version = 11
+type = "constraint"
+phase = "active"
+
+[rule]
+scope = "polecat"
+severity = "escalation"
+summary = """
+POLECAT LAWS
+
+0. CONTEXT-DB FIRST — ORIENT BEFORE YOU SCOPE THE BUILD, NOT JUST BEFORE YOU GREP. The Sandboxx
+   domain knowledge you need has almost certainly been captured already. Before you SCOPE YOUR
+   IMPLEMENTATION — and before grepping source, reading a rig file, or querying a live system for any
+   domain question — ORIENT via the context-db using YOUR in-dispatch tool:
+   the **agent door**: `TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh
+   --url "$CTX" 2>/dev/null || gcloud auth print-identity-token)` then `POST $CTX/search`
+   with `{"query":...,"filters":{"rig":...},"top_k":5}` (the rig filter is
+   `filters.rig`, NOT a top-level `rig` — a top-level `rig` is not a field on `SearchRequest`
+   and Pydantic drops it silently, so the search comes back UNFILTERED) and `GET $CTX/concept/<id>`, where
+   `CTX=https://context-db-2hazwepeiq-uc.a.run.app` (NOT `ctx query` — `ctx` is not on PATH
+   in a dispatched session; NOT an MCP — it needs per-project-root registration a polecat
+   does not have). Also read `rigs/<rig>/domain/` (law #12).
+   A grep or source read is VERIFY-AT-SOURCE (law #12), NEVER orientation: source is step 3 (confirm
+   the exact fact you will build against), never step 1 (discover WHETHER the capability already
+   exists). TRIP-WIRE: about to write code for a capability you have NOT queried the corpus for? STOP
+   and query — you may be about to REBUILD something that already ships (the t2k2n near-miss, 2026-07-29:
+   an existing `--gcp`/authzproxy feature nearly rebuilt from momentum). A hit is a MAP, not gospel —
+   verify the exact fact at the source. A miss, a weak hit, or a chunk the source contradicts is a KNOWN
+   GAP: after you verify at source, record it as a domain note (law #9 / #12) so the next polecat gets a
+   hit where you got a miss. PERSIST THIS REFLEX: `bd remember` "orient before scoping a build" so it
+   outlives this dispatch (the reflex only — durable domain facts go to the rig domain, law #12, never
+   private memory). SELF-FEEDBACK: if orientation itself misfired (you skipped it and rebuilt X; index
+   summaries too vague to pick a concept; rig-filter returned noise), drop an unprompted one-line
+   `rigs/<rig>/domain/notes/` note tagged `context-db usage/orientation feedback` — the archivist
+   collates it into `bridge.knowledge.context-db-usage-feedback`. Full doctrine — orientation-only,
+   per-role tooling, gap-surfacing, self-memory, self-feedback — in laws-context-db. (Mirror of mayor #0.)
+
+1. BRANCHES ONLY — Never commit to main/master. Feature branches only. PRs are the only path to main.
+
+2. NO MERGE, NO APPLY — Never merge PRs. Never run terraform apply. Create PRs and enqueue in the refinery.
+
+3. LEASED OR KILLED — You must have .bridge/lease.json and constraint context. The deacon kills rogues on sight.
+
+4. NO PERSONAL CREDENTIALS — BUT YOU DO GET SCOPED READ CREDS, AND YOU ARE EXPECTED TO USE THEM.
+   The prohibition is on PRIVILEGE, not on the word "credential". Read both halves before
+   concluding a door is shut.
+
+   FORBIDDEN — the operator's PERSONAL, high-privilege identity: their ADC used to MUTATE,
+   `gcloud auth login`, personal API tokens, SA keys. Never request them, never use them to
+   write, deploy, or `terraform apply`. (Laws #1/#2/#13 forbid the ACTIONS; this forbids the
+   IDENTITY.)
+
+   YOURS TO USE — short-lived, impersonated, READ-ONLY service credentials. These ARE GCP
+   credentials and holding them is correct:
+   - `polecat-ro@sandboxx-prod-01.iam.gserviceaccount.com` — cross-project read-only, via
+     `gcloud ... --impersonate-service-account=polecat-ro@sandboxx-prod-01.iam.gserviceaccount.com`.
+     Gather your OWN evidence (logs, Cloud Run config, metrics) instead of asking the mayor
+     to hand-fetch it. ⚠️ SCOPE DRIFTS and the terraform module LAGS the live grants — never
+     copy a role list out of a doc. Verify the read you need:
+       gcloud projects get-iam-policy <project> --flatten='bindings[].members' \
+         --filter='bindings.members:polecat-ro' --format='value(bindings.role)'
+     Measured 2026-08-18: prod-01 has data-plane reads (`datastore.viewer`,
+     `bigquery.dataViewer`); stage-01 has the same config + observability reads but NO
+     data-plane. Mayor law #4 carries the fuller picture.
+   - THE CONTEXT-DB TOKEN (law #0). Context-db is a Cloud Run service, so its ID token IS a
+     GCP credential — one you are EXPECTED to mint and use for orientation. A local tmux
+     polecat inherits the operator's ADC, which already holds tokenCreator on
+     `ctx-db-invoker`, so `mint-ctx-token.sh ... 2>/dev/null` just works (measured from a
+     polecat worktree). Under a `--gcp` sling raw ADC is blocked and the mint is expected to
+     fail — use the injected `CONTEXT_DB_TOKEN` there.
+
+   TRIP-WIRE: "polecats have no GCP creds" is FALSE and was stale doc wording. If you are
+   about to skip orientation, skip a live read, or report a finding as unverifiable because
+   you believe you have no credentials — TRY THE COMMAND FIRST. Three polecats in one day
+   (2026-08-18) reported context-db unreachable without ever running the mint.
+
+5. LINEAR ONE-AT-A-TIME — One Linear write at a time, confirm each, report every 3-5. Timeout >30s = stop and escalate.
+
+6. CLOSE YOUR OWN BEAD — You must have Bash access to run bd close when done. If you can't, escalate.
+
+7. TEST-DRIVEN, COMMIT-FIRST — Write tests first AND commit them before writing implementation.
+   The commit-first pattern prevents test manipulation: tests locked in version control cannot
+   be silently weakened to make a bad implementation pass. Sequence: (a) write failing tests,
+   (b) git commit the tests, (c) write implementation, (d) verify tests pass, (e) commit implementation.
+   No PR enters the refinery with failing tests. Report test results on completion.
+
+8. NEVER DESTROY YOUR WORKTREE — The worktree you're running in is your workspace. Never
+   run git worktree remove, git worktree prune, or delete the directory you're in. If you
+   need a clean state, use git checkout/reset/clean within the worktree. Destroying your
+   own worktree kills your shell — every subsequent command will fail.
+
+9. CAPTURE WHAT YOU LEARNED — Before closing your bead, write back what you discovered:
+   - Domain notes: non-obvious findings (dependency quirks, API behavior, build gotchas)
+     go to rigs/<repo>/domain/notes/<topic>.md. Short, source-attributed, for future polecats.
+   - Formulas: if you discovered a constraint or pattern that future polecats must follow,
+     mint it as a rig-level formula in rigs/<repo>/formulas/<name>.formula.toml.
+   - bd remember: one-liner shared memories for cross-rig knowledge.
+   Knowledge that dies with your session is wasted work.
+
+10. NEVER MERGE CHILD REPO PRs -- Create PRs via gh pr create. Never run gh pr merge on
+    child repos. The operator reviews and merges. Your PR is the deliverable.
+    Exception: bridge (sandboxx-bridge) and managed forks (gastown-prime) -- polecats
+    dispatched to these repos may push directly to main.
+
+11. ASCII-SAFE FOR WINDOWS -- When writing files that will execute on a Windows host
+    (PowerShell `.ps1`, batch `.bat`, anything PowerShell 5.1 might parse), keep
+    STRING LITERALS to ASCII only. PowerShell 5.1 reads no-BOM UTF-8 files as
+    Windows-1252 by default; multi-byte UTF-8 sequences get mis-decoded into
+    Windows-1252 chars, and some of those chars terminate strings.
+
+    The classic bite: an em-dash `--` is UTF-8 bytes `E2 80 94`. Read as CP1252,
+    that's three chars including `0x94` which is a closing quote. Result: the
+    string terminates mid-line, the parser sees the rest of the line as code,
+    and you get cascading "missing terminator" + "missing closing }" errors
+    pointing at lines far below the actual offending character.
+
+    On macOS / Linux these multi-byte sequences "just work" in your editor and
+    when you cat the file, so this bug is invisible until the operator runs the
+    script on Windows. ASCII content is invariant across encodings -- prefer it.
+
+    Substitute ASCII alternatives in string literals:
+      - em-dash    -> `--`
+      - en-dash    -> `-`
+      - section sign -> `sec.`
+      - curly quotes -> straight `"` or `'`
+      - non-breaking space -> regular space
+      - bullet, ellipsis, arrows, math symbols -> ASCII equivalents
+
+    Comments (`# ...`) are usually safe (the `#` token is detected first), but
+    stay ASCII there too -- defensive against future PowerShell parser changes
+    and against tools that later reformat / quote-wrap comment text.
+
+    File-level fix (saving with a UTF-8 BOM) works but is fragile -- BOMs get
+    stripped silently by editors, copy-paste, file-server transfers, git
+    filters. ASCII content survives all of those.
+
+    Scope: any polecat that writes content destined for Windows execution,
+    most commonly Pressman extension polecats producing files under
+    `rigs/<rig>/scripts/*.ps1`. After writing, grep your output:
+
+        LC_ALL=C grep -nP '[^\\x00-\\x7f]' <file>
+
+    If anything matches inside a string literal, fix it before commit.
+
+12. DOMAIN NOTES OVER PRIVATE MEMORY -- When you discover a Gastown rule, role
+    contract, lifecycle behavior, repo quirk, or strategic decision worth
+    remembering, the knowledge belongs in the **rig's domain library**, NOT in
+    your private auto-memory dir.
+
+    Auto-memory (`~/.claude/projects/.../memory/`) is per-Claude-instance.
+    Only the current polecat session sees it. The next polecat dispatched
+    against this rig DOES NOT read it. Future foremen, archivists, and the
+    mayor DO NOT read it. Knowledge written to auto-memory dies with your
+    session and is wasted work (law #9 calls this out generally; this law
+    names the specific anti-pattern).
+
+    Write durable findings as raw notes:
+      rigs/<rig>/domain/notes/<YYYY-MM-DD>-<topic>.md
+
+    The archivist_dog (5m timer) flags pending notes; the next archivist
+    sweep collates them into the canonical rig taxonomy. Mayor sees them
+    via the SessionStart context bundle.
+
+    The test for which to use:
+
+      > "Will the next polecat in this rig need to know this?"
+
+    - **Yes** -> rig domain note (this law's path).
+    - **No, only ephemeral session state** -> auto-memory is acceptable
+      (rare; most polecat learnings are durable).
+
+    Examples that belong in domain notes (not auto-memory):
+    - "Build of <package> requires `make tidy` before `make build` or you get
+      cryptic module errors" -> rigs/<rig>/domain/notes/build-quirk-...md
+    - "Endpoint /v2/foo returns 404 for soft-deleted users but the docs say
+      200" -> rigs/<rig>/domain/notes/api-soft-delete-...md
+    - "The integration test suite needs DOLT_URL pointing at the central
+      server, not a per-rig DB" -> rigs/<rig>/domain/notes/testing-...md
+
+    The discipline mirrors mayor law #13. Knowledge that survives across
+    polecats is the only knowledge worth writing down.
+
+13. NEVER BLOCK ON AN INTERACTIVE DECISION PROMPT -- DECIDE FROM THE DISPATCH
+    BEAD, RECORD, PROCEED. You run HEADLESS. There is no operator in your
+    session. Any prompt that waits for a human keystroke -- `AskUserQuestion`,
+    an interactive menu, a numbered picker, an "Enter to select / Tab/Arrow
+    keys to navigate" affordance, a "Do you want to proceed?" confirmation --
+    will hang INDEFINITELY and burn your slot. One polecat (arkship, #2624
+    rework) sat ~50 minutes at such a menu. NEVER raise one.
+
+    Instead, when you reach a decision fork:
+      a. Make a best-judgment decision grounded in the DISPATCH BEAD (the
+         frozen spec -- it already froze the intent) plus the codebase and rig
+         domain docs. The bead is the operator's voice; read it as such.
+      b. RECORD the decision + rationale in BOTH:
+         - the bead turn-notes: `bd update {{issue}} --notes "turn N: decided
+           X over Y because Z (autonomous)"`, and
+         - the PR description, under a clear heading:
+             ## Decisions made autonomously
+             - <decision> -- <why, and what the reviewer should confirm>
+      c. PROCEED. The reviewer/operator course-corrects on the PR -- that is
+         the right, NON-BLOCKING channel. A wrong-but-recorded decision on a PR
+         is cheap to fix; a hung session fixes nothing and blocks the swarm.
+
+    Reserve the async HELP-note channel (`bd update --notes -s "HELP: ..."`)
+    for a GENUINE hard blocker (you cannot proceed at all). Even then: write
+    the note and PROCEED with the most reasonable assumption, or close cleanly
+    with a `no-changes:` / `blocked:` note -- NEVER hang on an interactive
+    prompt waiting for an answer that will never come.
+
+    CARVE-OUT -- IRREVERSIBLE / OUT-OF-WORKTREE ACTIONS ARE A HARD BLOCKER, NOT
+    A DECIDE-AND-PROCEED. Everything above applies to work that is REVERSIBLE
+    and CONTAINED: edits on your own branch, in your own worktree, undoable by a
+    reviewer at the PR gate. That is the normal case, and there you decide from
+    the bead and proceed. But if the fork in front of you is a genuinely
+    IRREVERSIBLE or OUT-OF-WORKTREE destructive action -- a real data-loss
+    confirm (dropping a table, `rm -rf` outside the worktree, a force-push over
+    shared history), an EXTERNAL or PRODUCTION mutation (deploy, `terraform
+    apply`, a live API write, sending mail/notifications), or ANY change that
+    reaches outside your own worktree/branch -- do NOT decide-and-proceed
+    through it. That is exactly the case where "the reviewer course-corrects on
+    the PR" is FALSE: there is no cheap undo. Treat it as a genuine hard
+    blocker: persist a `blocked:` note explaining the action and why you stopped
+    (`bd update {{issue}} --notes "blocked: <irreversible action> needs an
+    operator decision -- <context>"`), then `gt exit`. Laws #1 (branches only)
+    and #2 (no merge / no apply) already forbid most of these; this carve-out
+    makes the safety explicit so decide-and-proceed can NEVER be read as license
+    to run an irreversible action headless. Reversible + in-worktree =
+    decide-and-proceed; irreversible / out-of-worktree = blocked -> persist ->
+    exit.
+
+    Defense-in-depth: the deacon classifies a menu-parked polecat as
+    `AWAITING_DECISION` (idle + bead-open + a decision-menu signature in the
+    tmux pane) and escalates it to the mayor promptly (rigs/deacon/classify.py,
+    sbx-gastown-i83ov). But do not rely on that safety net -- it is a backstop
+    for menu-parks that slip through, not a substitute for this law."""

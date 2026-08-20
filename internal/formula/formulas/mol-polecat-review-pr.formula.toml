@@ -10,11 +10,21 @@ standards, then approves, requests changes, or files followup beads.
 You are a self-cleaning worker. You:
 1. Receive work via your hook (pinned molecule + PR reference)
 2. Work through molecule steps using `bd mol current` / `bd close <step>`
-3. Complete and self-clean via `gt done` (submit findings + nuke yourself)
+3. Complete and self-clean via `gt exit` (persist findings + release the slot)
 4. You are GONE - your review is recorded in beads
 
-**Self-cleaning:** When you run `gt done`, you submit your findings, nuke your
-sandbox, and exit. There is no idle state. Done means gone.
+**Self-cleaning:** When you run `gt exit`, you push, persist a completion note
+to the bead, and exit. The daemon reaper reclaims your worktree and session.
+There is no idle state. Done means gone.
+
+**The verb is `gt exit`, NOT `gt done` (sbx-gastown-vf98i).** This formula said
+`gt done` until 2026-08-12, and that was a real bug, not a synonym: `gt done`
+submits to a merge queue and "transitions polecat to IDLE (sandbox preserved,
+session stays alive for reuse)". This town runs the dispatch-and-kill model,
+where no merge queue is involved and the slot must be RELEASED. A reviewer who
+ran `gt done` exactly as instructed still ended up idle, holding a worktree and
+a tmux session — which is precisely the failure the mayor hand-cleaned a dozen
+times on 2026-08-11. `gt exit` is what every other bridge role formula uses.
 
 **Important:** This formula defines the template. Your molecule already has step
 beads created from it. Use `bd mol current` to find them - do NOT read this file directly.
@@ -23,6 +33,7 @@ beads created from it. Use `bd mol current` to find them - do NOT read this file
 - Merge the PR yourself (maintainer or Refinery does that)
 - Push to the PR branch (it's external)
 - Wait for contributor response (you're done after review)
+- Close your own bead (the archivist closes it after knowledge extraction)
 
 ## Variables
 
@@ -40,7 +51,7 @@ beads created from it. Use `bd mol current` to find them - do NOT read this file
 | Major issues found | File followup beads, request changes |
 | Unclear requirements | Mail Witness for guidance |"""
 formula = "mol-polecat-review-pr"
-version = 1
+version = 7
 
 [[steps]]
 id = "load-context"
@@ -85,9 +96,70 @@ gh pr view {{pr_url}} --json mergeable,reviewDecision
 **Exit criteria:** You understand the PR's purpose and scope."""
 
 [[steps]]
+id = "domain-context"
+title = "Orient on the PR's domain (context-db)"
+needs = ["load-context"]
+description = """
+Before reviewing, orient on the PR's domain. Domain context is how you catch incorrect
+business logic a pure code read would miss. Orient BEFORE you read the diff — once you have
+read the diff you are anchored to the author's framing, and orientation degrades into
+confirming it.
+
+**You are the town's ONE domain-judgement seat on this PR.** The foreman that handles the
+review conversation afterwards is deliberately corpus-blind: it inherits its domain context
+from YOUR comments and from the originating bead, and it escalates rather than re-deriving
+(sbx-gastown-fzzn1). So a domain concern you leave unstated here does not get caught later —
+it gets implemented. Write the "why" into the review, not just the verdict.
+
+Skim the primed "Retrieved Domain Context (orientation only)" block, then pull more through
+the **context-db agent door**. Works from any cwd: no bridge checkout, no
+`gcloud run services proxy`, no MCP. (Do NOT use `ctx query` — `ctx` is not on PATH in a
+dispatched session; that door is dead.)
+
+The full recipe — mint, `POST /search`, `GET /map`, section-scoped `GET /concept`, the filter
+vocabulary, and the `POST /notes` write-back — is written once in
+`formula-overlays/shared/context-db-door.md` and injected at prime time by the town overlay.
+
+> ⚠️ **Where you will actually see it (sbx-gastown-fzzn1).** `gt prime` renders the formula
+> compiled into the `gt` binary plus `<townRoot>/formula-overlays/<name>.toml`
+> (`internal/cmd/prime_molecule.go:116,133`); it never reads `.beads/formulas/`. Until
+> 2026-08-20 the embedded copy of THIS formula was v1 with no `domain-context` step at all,
+> so the door block only ever reached you appended to **`load-context`** by
+> `formula-overlays/mol-polecat-review-pr.toml`. The embed refresh (`sbx-gastown-0uzpg`)
+> landed this step in the binary; the overlay still appends the recipe and remains the
+> delivery path. Do NOT paste the recipe body back in here — that duplicates it against the
+> overlay and re-opens the drift this bead closed. Editing `.beads/formulas/` alone still
+> reaches nobody: a formula change is only live once `gt` is rebuilt and reinstalled.
+
+If the block is not in your primed context, the always-current contract is one call away:
+
+```bash
+CTX=https://context-db-2hazwepeiq-uc.a.run.app
+TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
+        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+curl -s -H "Authorization: Bearer $TOKEN" "$CTX/agents"   # the baked AGENTS.md doctrine
+```
+
+`GET /agents` → 200 is the liveness probe; `/healthz` is **404 on the *.run.app URL by
+design**, not an outage. **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — a stopgap,
+never a licence to skip orientation and go straight to the diff.
+
+Orientation only: a concept tells you where to LOOK, not what's true now — confirm any
+exact/current fact against the live code + the PR diff before an approval or change-request
+(the live source wins).
+
+**Feed back what you learned.** A durable review finding goes to `POST $CTX/notes` (see the
+injected block). You cannot set `note_sources` — `NoteRequest` is `{body, agent, rig, topic}`
+only (`context-db/api/app.py:413-420`); the archivist stamps `foreman-review` on a review-stream
+note at fold time. And if ORIENTATION itself misfired, that is its own note, topic prefixed
+`context-db usage/orientation feedback`.
+
+**Exit:** oriented on the PR's domain, know how to query the agent door for more. No artifact."""
+
+[[steps]]
 id = "review-code"
 title = "Review the code changes"
-needs = ["load-context"]
+needs = ["domain-context"]
 description = """
 Perform a thorough code review of the PR.
 
@@ -253,15 +325,17 @@ EOF
 
 The review-bot identity is **KbotSB** (`mayor/credentials/kbotsb.token`). Prefer it
 when it authenticates AS the bot. But as of this writing KbotSB authenticates as the
-OPERATOR, not the bot (escalation sbx-gastown-tzpay) — so a genuine bot path is often
-unavailable. Detect the current identity before deciding how to post:
+OPERATOR, not the bot (escalation sbx-gastown-tzpay) — so the genuine bot path is often
+unavailable. Resolve BOTH the active identity and the PR's author before deciding how
+to post:
 
 ```bash
-gh auth status   # shows the logged-in account for the active token
+gh auth status                                          # the logged-in account for the active token
+ME=$(gh api user -q .login)                             # the authenticated reviewer (KbotSB, or operator fallback)
+PR_AUTHOR=$(gh pr view {{pr_url}} --json author -q .author.login)
 ```
 
-- **Bot path available** — the active identity IS the KbotSB bot account:
-  you MAY post a formal review STATE in addition to the comment (see step 3).
+- **Bot path** — the active identity IS the KbotSB bot account.
 - **Fallback (operator identity)** — the active identity is the operator (the tzpay
   state), or KbotSB is otherwise unavailable: post the review CONTENT via
   `gh pr comment` under whatever identity is available. Operator-identity comments
@@ -278,20 +352,28 @@ gh pr comment {{pr_url}} --body-file /tmp/gastown-review-{{issue}}.md
 
 This is the mandatory deliverable and runs on BOTH the bot path and the fallback.
 
-**Formal review STATE — bot path ONLY.** Only when step 2 confirmed the genuine
-KbotSB bot identity, you MAY additionally submit a formal review state:
+**Formal review STATE — gated on authorship, not on the bot path.** GitHub blocks
+`--approve` / `--request-changes` in exactly one case: the reviewing account AUTHORED
+the PR. So the gate is `ME` vs `PR_AUTHOR` from step 2, and it applies on the bot path
+and the operator fallback alike:
 
 ```bash
-# ONLY when authenticated as the KbotSB bot:
+# ME != PR_AUTHOR — submit a FORMAL verdict. Do this; do NOT default to --comment:
 gh pr review {{pr_url}} --approve         --body-file /tmp/gastown-review-{{issue}}.md   # APPROVE
 gh pr review {{pr_url}} --request-changes --body-file /tmp/gastown-review-{{issue}}.md   # REQUEST_CHANGES
 gh pr review {{pr_url}} --comment         --body-file /tmp/gastown-review-{{issue}}.md   # NEEDS_DISCUSSION
 ```
 
-> ⚠️ Do NOT run `gh pr review --approve/--request-changes` under the OPERATOR
-> identity. GitHub rejects self-approval and a formal state under the wrong identity
-> is misleading. Under the fallback, the `gh pr comment` post from above is the
-> complete deliverable — do not attempt a formal review state.
+Most PRs are authored by someone else, so an APPROVE should be an explicit
+`--approve` — not a comment. The refinery enforces `require_review=true` and will NOT
+merge a PR that has no approving review, so downgrading a genuine approval to a
+`--comment` silently strands the PR.
+
+> ⚠️ **`ME == PR_AUTHOR` — self-authored fallback.** GitHub rejects self-approval, so
+> do NOT run `--approve` / `--request-changes`. The `gh pr comment` post from step 3 is
+> your complete deliverable; optionally add `gh pr review --comment` carrying the same
+> body. This is common when KbotSB is down and reviews run under the operator identity
+> on an operator-authored PR — and it is the one case where the PR gets no formal state.
 
 ## 4. Record the verdict on the tracking bead (backstop — ALWAYS)
 
@@ -343,31 +425,82 @@ bd sync
 
 [[steps]]
 id = "complete-and-exit"
-title = "Complete review and self-clean"
+title = "Verify YOUR deliverables, then exit"
 needs = ["file-followups"]
 description = """
-Signal completion and clean up. You cease to exist after this step.
+This step is about YOU, not the PR. The PR's state is already settled — you
+posted the verdict in the previous step. What remains are the deliverables
+only you can produce.
 
-**Self-Cleaning Model:**
-Once you run `gt done`, you're gone. The command:
-1. Syncs beads
-2. Nukes your sandbox
-3. Exits your session immediately
+## Your deliverable was never the PR (sbx-gastown-vf98i)
 
-**Run gt done:**
+The verdict comment is the most VISIBLE thing you produce, so it is tempting
+to treat posting it as the definition of done. **It is an OUTPUT of your bead,
+not the completion of it.** Your bead's deliverables are: the verdict posted,
+AND your findings persisted, AND `gt exit` actually run — which releases your
+hook and lets the reaper reclaim your slot.
+
+That last one is invisible in PR-space, which is exactly why it gets dropped.
+On 2026-08-11 a dozen review and foreman polecats posted their verdicts
+perfectly and then sat at an empty prompt forever, each holding a worktree and
+a tmux session. The mayor hand-reaped every one. The failures clustered on
+THIS role and the foreman role — build polecats exited cleanly — because a
+reviewer's mental model of "done" is PR-shaped.
+
+## This step is INCOMPLETE until every check below passes
+
+You cannot satisfy this step by describing it. Run the commands and READ the
+output. Several polecats NARRATED an exit they never performed — one pane read
+"submitted via `gt done --status DEFERRED`" while its bead sat HOOKED. **A
+self-report is not evidence. Actual state is.**
+
+**1. Findings persisted.** Your review reasoning lives nowhere else. The
+verdict comment says WHAT you decided; the bead is where WHY survives for the
+next scout.
 ```bash
-bd sync
-gt done
+bd show {{issue}} --notes
+```
+READ the output. If your findings are not in there, persist them now:
+```bash
+bd update {{issue}} --notes "Review complete. Decision: <APPROVE|REQUEST_CHANGES|...>. <what you found and why it mattered>"
 ```
 
-**What happens next (not your concern):**
+**2. Nothing unpushed.** `gt exit` pushes, but check first — the reaper deletes
+your worktree, and a commit that never left it is gone.
+```bash
+git status                       # must be clean
+git log @{u}..HEAD --oneline     # must print NOTHING
+```
+
+**3. Exit.** This is a DELIVERABLE, not an epilogue.
+```bash
+bd sync
+gt exit
+```
+
+**NOT `gt done`.** See the contract at the top: `gt done` submits to a merge
+queue and transitions you to IDLE with the session preserved — it does NOT
+release your slot. `gt exit` pushes, persists a completion note, and exits so
+the reaper can reclaim you.
+
+**Do NOT close your own bead.** The archivist closes it after extracting
+domain knowledge from your findings. An open bead is not an unfinished job.
+
+## What happens next (not your concern)
+
+- The daemon reaper reclaims your worktree and session
+- The archivist extracts your findings, then closes the bead
 - Maintainer or Refinery acts on your review
-- Contributor responds to feedback
-- PR gets merged, revised, or closed
 
 You are NOT involved in any of that. You're gone. Done means gone.
 
-**Exit criteria:** Beads synced, sandbox nuked, session exited."""
+**Exit criteria:** findings verified present in `bd show {{issue}} --notes`,
+`git log @{u}..HEAD` empty, `gt exit` run.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE complete-and-exit
+```"""
 
 [vars]
 [vars.pr_url]

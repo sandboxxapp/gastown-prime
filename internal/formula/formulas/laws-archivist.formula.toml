@@ -1,0 +1,129 @@
+formula = "laws-archivist"
+description = "Constraints for archivists — multi-turn polecats that extract and archive domain knowledge from completed dispatches."
+version = 5
+type = "constraint"
+phase = "active"
+
+[rule]
+scope = "archivist"
+severity = "escalation"
+summary = """
+ARCHIVIST LAWS
+
+An archivist is a POLECAT. All polecat laws apply. These are additional constraints
+for the archivist's specialization: collating raw domain notes into the structured
+domain taxonomy.
+
+1. NOTES IN, TAXONOMY OUT — Read all files in rigs/<repo>/domain/notes/. Integrate
+   each note's findings into the appropriate rigs/<repo>/domain/<category>/<feature>.md
+   file. Create new taxonomy files if no existing file covers the topic.
+
+2. PRESERVE ATTRIBUTION — Every claim in a note has a source (file:line, ticket ID,
+   API response). Carry that attribution forward into the taxonomy file. Never merge
+   a finding without its source.
+
+3. MERGE, DON'T APPEND — Integrate notes into existing ## aspect sections. If a note
+   contradicts or updates existing knowledge, replace the old claim with the new one
+   and note the update. Don't just append at the bottom. Merge into the aspect that
+   OWNS the topic — a genuinely new aspect earns its own `##`, it is not a paragraph
+   bolted onto the biggest section (#11 bounds this).
+
+4. MAINTAIN BEADS MEMORY — For each note that contains cross-rig knowledge (not just
+   repo-local), run bd remember with a one-liner summary. Check bd memories first to
+   avoid duplicates.
+
+5. MINT FORMULAS WHEN WARRANTED — If notes contain patterns that should constrain
+   future polecats (e.g. "always use transitive deps for Braintree modules"), mint
+   a rig-level formula in rigs/<repo>/formulas/. Not every note becomes a formula —
+   only recurring constraints.
+
+6. DELETE PROCESSED NOTES — After a note's content is fully integrated into the
+   taxonomy (and bd remember / formulas if applicable), delete the note file from
+   domain/notes/. The note is the input; the taxonomy is the output. Don't keep both.
+
+7. FOLD TO CORPUS — The fold is only half-done when the .md taxonomy is written.
+   After integrating notes into rigs/<rig>/domain/*.md AND committing them, refresh
+   the context-db corpus so it does not drift behind the docs: run
+   `tools/ctx/ctx fold --rig <rig>`. This emits/updates the matching
+   context/<layer>/<id>.json concept (body verbatim from the doc; ADD/UPDATE/RETIRE
+   handled by the deterministic migrate engine; curated answers/summary/edges
+   PRESERVED across re-folds) and validates the whole corpus before returning. Commit
+   the refreshed context/ alongside the docs. You MAY then enrich the touched
+   concept(s) (edges, sharper summary/answers, updated_by:archivist) — optional polish
+   that survives the next re-fold. Do NOT embed/deploy — the mayor republishes after
+   the PR lands. A corpus that drifts behind the docs serves every future dispatch
+   stale knowledge; keeping it live is part of the fold, not a separate chore.
+
+8. GCP PERMISSION ANALYSIS — When a completed dispatch used GCP access (authz-proxy
+   minted a token), query Cloud Logging for the actual permissions exercised during
+   the session. Compare against the granted scopes/profile. Write a recommendation
+   to rigs/<rig>/domain/infra/gcp-scope-history.md noting what was granted vs what
+   was used. This feeds a tightening loop: broad scopes first dispatch → record
+   what was used → future dispatches use minimal scopes. Skip this step if Data
+   Access audit logs are not enabled for the relevant services.
+
+9. SUMMARY ON COMPLETION — Report what was integrated: which notes processed, which
+   taxonomy files updated/created, which context-db concepts refreshed (ctx fold),
+   which formulas minted, which memories saved, which GCP scope recommendations
+   generated. This goes into the bead close reason.
+
+10. COLLATE CONTEXT-DB USAGE/ORIENTATION FEEDBACK — A dedicated fold target. Notes
+    tagged `context-db usage/orientation feedback` (emitted UNPROMPTED by any role
+    per laws-context-db #8) are NOT ordinary domain findings: they report HOW
+    orientation went (a skipped-orient rebuild, vague index summaries, a rig-filter
+    that returned noise, a headers-first round-trip blowup), not what the corpus
+    lacked (that is a content gap, laws-context-db #6, folded normally). Collate
+    these into the single cross-cutting concept `bridge.knowledge.context-db-usage-
+    feedback` (create it on first encounter; taxonomy home
+    `rigs/bridge/domain/knowledge/context-db-usage-feedback.md`), grouping recurring
+    anti-patterns so the pattern — not the one-off — is visible. When an anti-pattern
+    recurs enough to warrant a doctrine change, surface it to the mayor (it may mean
+    sharpening laws-context-db or the orient skill). This is the system learning from
+    its own users; keeping the feedback concept curated is what closes the
+    orient-first -> persist-reflex -> report-usage loop (laws-context-db #0/#7/#8).
+
+11. KEEP THE CORPUS FINE-GRAINED — LEAF CONCEPTS UNDER POINTER HUBS, NEVER MONOLITHIC
+    DUMPS. The corpus was RE-SHAPED (#144/#146, beads sbx-gastown-hb9qq / -j6hkr):
+    ~631 large multi-topic concepts became ~3,465 fine-grained LEAF concepts plus
+    parent MAP hubs. Mean concept body dropped 10,985 -> 2,187 chars (-80%) and the
+    payload an agent pulls to answer one question dropped ~79%; the right concept is
+    still in the top 5 for every eval query (`hit@5` = 1.0). You are the WRITE side of
+    that contract: every note you fold either MAINTAINS this shape or drifts the corpus
+    back to the dumps the reshape removed.
+
+    THE SHAPE YOU MAINTAIN:
+    - A LEAF is ONE aspect of ONE topic. It carries the body, its own aspect-specific
+      `summary` (this is the search-result line — it must describe THAT aspect, not
+      the parent doc), its own `answers`, and exactly one edge: the `part-of` back to
+      its parent.
+    - A PARENT MAP is a POINTER HUB (`is_map` / `n_children`). Its body is a table of
+      contents — one real heading per aspect, each followed by that child's concept id
+      and a one-liner — and it holds the topic-granularity `edges`. It is what a reader
+      is pointed AT, not what a reader reads.
+    - In one line: summary -> leaf, answers -> leaf, edges -> parent, parent = pointer
+      hub.
+
+    HOW YOU CONTROL IT — YOUR HEADINGS ARE THE RETRIEVAL GRAIN. The split is mechanical
+    (`tools/ctx/ctxlib/split.py`, run by `ctx fold`, law #7) but it splits at the
+    headings YOU write: a doc over ~8,000b of body OR more than 6 `##` sections becomes
+    a parent map plus one leaf per `##` (per `###` when one aspect itself exceeds
+    12,000b). So each `##` should be ONE answerable question, titled the way an agent
+    would ask it. The fold cannot split what you did not separate — a 40KB wall under
+    two vague headings yields two useless 20KB leaves (14 such README index sections are
+    still over budget today, sbx-gastown-g65g2). Do NOT hand-author leaves or split
+    `part-of` edges in `context/**.json`; write the doc structure and let the fold emit
+    them.
+
+    THE ANTI-PATTERN: growing one concept until it covers many topics. When a note adds
+    a genuinely new aspect to an already-large doc, SPLIT — give the topic aspect
+    headings so it folds into a parent hub plus leaves — rather than appending to the
+    biggest section. Never restate a parent map's children back into the parent body;
+    that re-inflates exactly what the reshape removed.
+
+    WHY: retrieval is HEADERS-FIRST and pointer-walking. Readers ask many small
+    questions, read the INDEX (summary + section outline), then open exactly ONE leaf —
+    walking `is_map`/`n_children` -> `GET /map/{id}` -> one child (the reader doctrine
+    in `context-db/AGENTS.md` § "How to ask", and laws-context-db #2). A monolithic
+    concept defeats every step of that: one summary cannot describe many topics, the
+    outline is a wall, and opening it costs the reader the whole dump. The write side
+    must produce what the read side expects."""

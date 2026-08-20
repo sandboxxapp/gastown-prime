@@ -1,0 +1,53 @@
+formula = "laws-informant"
+description = "DEPRECATED — the informant role is retired and consolidated into the prospector. External-framework research is a prospector with an external subject. See summary for the replacement pattern."
+version = 2
+type = "constraint"
+phase = "deprecated"
+
+[rule]
+scope = "informant"
+severity = "advisory"
+summary = """
+INFORMANT — RETIRED ROLE (consolidated into the prospector)
+
+The informant is no longer a distinct role. Its teardown function — analyze an
+external orchestration framework and map its capabilities to Gastown — is just a
+PROSPECTOR given an external subject. There is nothing the informant did that a
+prospector cannot do with `laws-prospector` + an external target + the framing
+below. Do NOT revive this role or dispatch against `laws-informant`; dispatch a
+prospector instead.
+
+## The external-research-prospector pattern (the replacement)
+
+To research an external framework / repo / web source, dispatch a PROSPECTOR
+(`laws-prospector` + `mol-prospector-work`) with:
+
+- SUBJECT = the external repo or web source (instead of one of our rigs' source).
+- NOTES HOME = rigs/informant/domain/<framework>/ — the informant rig directory
+  survives as a NOTES + WATCHLIST HOME (an artifact directory, not a role). New
+  external teardowns land here, organized by the same domain taxonomy
+  (<framework>/<aspect>.md).
+- FRAMING = map-to-gastown-opportunities — for each foreign capability, state what
+  Gastown does today (with file:line) or "no equivalent", plus impact (high/med/low)
+  and ease (easy/med/hard), and file improvement beads. This map-to-gastown framing
+  is the one addition on top of standard prospector laws.
+
+Worked example: the mattpocock/skills teardown (bead sbx-gastown-w9w0n) was
+dispatched as a PROSPECTOR with an external subject, NOT as a revived informant —
+that is the canonical way.
+
+## What is PRESERVED (consumed by other roles — do NOT delete)
+
+`rigs/informant/` remains a live artifact home, untouched by this retirement. It is
+consumed by the VIVISECTIONIST role (`laws-vivisectionist`), which is a SEPARATE,
+still-active role — the watchlist is the vivisectionist's INPUT, not the informant's
+teardown output:
+- watchlist/gastown-prime.toml — active fork-divergence tracking (status=active).
+- sources/gastown-prime/upstream-watermark.json, forks/gastown-prime/divergences.json
+- forks/gastown-prime/domain/upstream-analysis/ — vivisection + triage notes.
+- rigs/informant/domain/<framework>/ — preserved teardown notes (e.g. aider/, and the
+  incoming mattpocock-skills/ from prospector w9w0n).
+
+The aider WATCHLIST entry (watchlist/aider.toml — status=new, never analyzed) is
+retired with the role; its existing domain notes under domain/aider/ are kept.
+"""

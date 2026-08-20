@@ -21,6 +21,10 @@ the checklist, then submit your PR and exit.
 - Push directly to main (PRs are the only path to main)
 - Merge your own PR (the mayor reviews and merges)
 - Fix pre-existing failures on main (Refinery owns main health)
+- Run `gt done` — **the exit verb is `gt exit`** (sbx-gastown-vf98i). `gt done` submits to a
+  merge queue and transitions you to IDLE with the sandbox and session PRESERVED; this town
+  runs dispatch-and-kill, where the slot must be RELEASED. They are not synonyms. Every
+  bridge role formula uses `gt exit`; see `mol-polecat-review-pr` for the full history.
 
 ## Variables
 
@@ -34,16 +38,78 @@ the checklist, then submit your PR and exit.
 | lint_command | rig config | Lint command (e.g., `eslint .`). Empty = skip. |
 | build_command | rig config | Build command (e.g., `go build ./...`). Empty = skip. |
 
+## Scoped Credentials (`--secrets <profile>`)
+
+When the mayor dispatches you with `gt sling … --secrets <profile>`, scoped
+app/service credentials for that profile are injected into your environment as
+plain env vars (the profile's named `vars`, sourced from a gitignored dotenv —
+see `.mcp-secrets.json` `secret_profiles`). Use them to reach the real
+app/service backend the task needs (e.g. run a dry-run/apply against a prod admin
+API). They are absent unless you were dispatched with `--secrets`.
+
+- **Read them from the environment** (`os.environ[...]` / `$VAR`). They are
+  least-privilege: only the profile's named vars are present — nothing else from
+  the dotenv leaks.
+- **NEVER print, echo, log, or commit the values.** Reference them by name only;
+  do not write them to disk, a test fixture, a PR body, or a turn note. (`gt`
+  already masks them — it logs only the profile name + var names.)
+- **Scoped SERVICE tokens only — never operator GCP ADC** (polecat-law #4). A
+  `--secrets` profile injects a static service/app token (e.g.
+  `COMMUNITY_ADMIN_V2_TOKEN`, a backend API key); short-lived GCP tokens come via
+  the separate `--gcp <profile>` mint. Both land in `extraEnv` and compose.
+- **If a needed var is absent**, you either weren't dispatched with the right
+  `--secrets` profile or the dotenv lacks it — stop and report. Do NOT hardcode a
+  fallback or read creds from anywhere else.
+
+Mechanism + profile config: `rigs/gastown-prime/domain/secrets-injection.md` (gt PR #56).
+
 ## Failure Modes
 
 | Situation | Action |
 |-----------|--------|
 | Build fails | Fix it. Do not proceed if it won't compile. |
-| Blocked on external | Mail Witness for help, mark yourself stuck |
-| Context filling | Use gt handoff to cycle to fresh session |
-| Unsure what to do | Mail Witness, don't guess |"""
+| Blocked on external | Close bead with --reason="blocked: <details>", run gt exit |
+| Context filling | Commit work, push branch, close bead, run gt exit |
+| Unsure what to do | Close bead with --reason="unclear: <details>", run gt exit |
+
+## Turn-Note Discipline
+
+Polecats write turn notes to the bead so the mayor can monitor in-flight work and
+the archivist can reconstruct decision paths, not just destinations.
+
+a. WHEN TO WRITE — Write a turn note after any meaningful action:
+     - Priming complete (read formula context, bead, and domain docs)
+     - Discovery pass complete (read files, confirmed or refuted a hypothesis)
+     - File edited (any write to the codebase)
+     - Test or shell command run and output observed
+     - Backtrack (discarded a prior path — include WHY it was discarded)
+     - Handoff (mail sent to mayor or other agent, awaiting ACK)
+   ```bash
+   bd update {{issue}} --notes "turn N: <one-line summary>. <why, if non-obvious>."
+   ```
+
+b. WHEN NOT TO WRITE — Skip a turn note for:
+     - Pure navigation: ls, grep, glob exploring — the next discovery note covers it
+     - Listing files you already confirmed exist
+     - Each individual tool call inside a single logical action
+   One note per logical action, not per tool call.
+
+c. FORMAT — One line per note. Prefix with "turn N:" using the sequential turn
+   number. Append a brief "why" for anything non-obvious (a choice, a backtrack,
+   a skip). Never paste diffs or raw tool output into notes — cite file:line or
+   a commit SHA instead.
+   Example: `turn 3: skipped branch-setup, bridge polecat commits to capitol directly`
+   Example: `turn 7: rewrote implement step after finding existing util at lib/fmt.go:42`
+
+d. WHAT TO KEEP OUT — No large diffs, no command output dumps, no stack traces.
+   If you need to preserve an error for the mayor, quote the key line only and
+   cite the log file. Notes are a semantic trail, not a raw transcript.
+
+e. DISTINCT GRAIN FROM gt EXIT NOTES — Turn notes go on the bead (playback grain).
+   `gt exit --notes` writes a findings note to `rigs/<rig>/domain/notes/` for the
+   archivist (findings grain). Both are required; neither replaces the other."""
 formula = "mol-polecat-work"
-version = 12
+version = 16
 
 [[steps]]
 id = "load-context"
@@ -90,21 +156,56 @@ git branch -a | grep <branch-from-notes>
 
 This lets you make a targeted fix rather than starting from scratch.
 
-**5. Understand the requirements:**
+**5. ORIENT — context-db agent door (do this BEFORE you read source):**
+
+A grep answers "what does this say"; the corpus answers "does this already exist" — and it
+usually does. Orienting first is what stops you rebuilding something that already ships.
+A grep or a source read is VERIFY-AT-SOURCE — step 3, confirming an exact fact. It is never
+step 1, discovering WHETHER the thing exists. That is what orientation answers.
+
+The door works from any cwd: no bridge checkout, no `gcloud run services proxy`, no MCP.
+The full recipe — mint, `POST /search`, `GET /map`, section-scoped `GET /concept`, the
+filter vocabulary, and the `POST /notes` write-back — is **appended to this step at prime
+time** from the town overlay, and is written once in
+`formula-overlays/shared/context-db-door.md`.
+
+> **Why the recipe is not pasted here (sbx-gastown-fzzn1).** `gt prime` renders the formula
+> compiled into the `gt` binary and applies `<townRoot>/formula-overlays/<name>.toml`
+> (`internal/cmd/prime_molecule.go:116,133`). It never reads `.beads/formulas/`. So a copy in
+> this file would reach no agent while still being a copy that can drift — and it had already
+> drifted across seven files by 2026-08-20. One canonical block, rendered by
+> `scripts/sync-formula-overlays.sh`, gated by `scripts/check-formula-overlays.sh`.
+
+If for any reason the block is not in your primed context, the always-current contract is one
+call away and needs nothing but the mint:
+
+```bash
+CTX=https://context-db-2hazwepeiq-uc.a.run.app
+TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
+        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+curl -s -H "Authorization: Bearer $TOKEN" "$CTX/agents"   # the baked AGENTS.md doctrine
+```
+
+`GET /agents` → 200 is also the liveness probe; `/healthz` is **404 on the *.run.app URL by
+design**, not an outage. A hit is a **MAP, never the value** — verify the exact fact at the
+source before you act. **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — a stopgap, never
+a licence to skip orientation and go straight to source.
+
+**6. Understand the requirements:**
 - What exactly needs to be done?
 - What files are likely involved?
 - Are there dependencies or blockers?
 - What does "done" look like?
 - If this is a rework: what specifically failed and why?
 
-**6. Verify you can proceed:**
+**7. Verify you can proceed:**
 - No unresolved blockers on the issue
 - You understand what to do
 - Required resources are available
 
-If blocked or unclear, mail Witness immediately:
+If blocked or unclear, note findings on bead and close with reason immediately:
 ```bash
-gt mail send <rig>/witness -s "HELP: Unclear requirements" -m "Issue: {{issue}}
+bd update {{issue}} --notes -s "HELP: Unclear requirements" -m "Issue: {{issue}}
 Question: <what you need clarified>"
 ```
 
@@ -128,22 +229,54 @@ git status
 git branch --show-current
 ```
 
-**2. Check for a prior branch from a rejected MR:**
+**2. Decide branching strategy (pick ONE — A, B, or C):**
 
-If the bead notes contain "MERGE REJECTION" with a branch name, check if that
-branch still exists on the remote. Reusing it preserves all previous work:
 ```bash
 git fetch origin
-# Check for prior branch
+```
+
+**Option A — Extend an existing open PR on `{{base_branch}}`** (when the
+bead says "extend PR #N", or when `{{base_branch}}` is itself the head
+of an open PR like `bridge/<issue-id>`):
+
+```bash
+# Detect: does {{base_branch}} already have an open PR?
+gh pr list --head {{base_branch}} --state open --json number,url --limit 1
+```
+
+If that command returns a PR, you are EXTENDING it. Do NOT create a new
+feature branch — your commits go directly on `{{base_branch}}` so the
+existing PR auto-updates on push:
+
+```bash
+git checkout {{base_branch}}
+git pull --ff-only origin {{base_branch}}
+```
+
+Skip Options B and C. Proceed to step 3.
+
+**Why not a stacked PR?** GitHub will auto-merge a stacked PR the moment
+its base catches up, creating a confusing second PR and a redundant merge
+commit. Pushing directly to `{{base_branch}}` is the bridge convention
+when the bead scope is "extend an existing PR."
+
+**Option B — Reuse a rejected-merge prior branch:**
+
+If the bead notes contain "MERGE REJECTION" with a branch name, reuse that
+branch — it preserves previous work and review discussion:
+
+```bash
 git branch -r | grep <prior-branch>
-# If found, check it out:
+# If found:
 git checkout -b <prior-branch> origin/<prior-branch>
 git rebase origin/{{base_branch}}
 ```
 
-**If no prior branch, create a fresh one:**
+**Option C — Fresh branch (the default):**
+
+Neither A nor B apply — create a new feature branch:
+
 ```bash
-git fetch origin
 git checkout -b polecat/<name> origin/{{base_branch}}
 ```
 
@@ -172,7 +305,7 @@ git rebase origin/{{base_branch}}      # Get latest, rebase your branch
 
 If rebase conflicts:
 - Resolve them carefully
-- If stuck, mail Witness
+- If stuck, note findings on bead and close with reason
 
 **5. Run project setup (if configured):**
 
@@ -253,7 +386,7 @@ Do NOT fix unrelated issues in this branch.
 **If stuck:**
 Don't spin for more than 15 minutes. Mail Witness:
 ```bash
-gt mail send <rig>/witness -s "HELP: Stuck on implementation" -m "Issue: {{issue}}
+bd update {{issue}} --notes -s "HELP: Stuck on implementation" -m "Issue: {{issue}}
 Trying to: <what you're attempting>
 Problem: <what's blocking you>
 Tried: <what you've attempted>"
@@ -303,7 +436,7 @@ This MUST show at least 1 commit. If it shows NOTHING:
 - You have NOT completed your implementation. Do NOT close this step.
 - Go back to the implement step and do the work.
 - If the task genuinely requires no code changes (already fixed upstream, etc.),
-  run `gt done --status DEFERRED` and skip remaining steps.
+  close the bead with `bd close {{issue}} --reason="no-changes: <explanation>"` and run `gt exit`.
 - Do NOT proceed to review or build with zero commits.
 
 **5. VERIFY clean working tree:**
@@ -456,7 +589,7 @@ git rebase origin/{{base_branch}}
 If rebase conflicts:
 - Resolve them carefully
 - Re-run the build to ensure the resolution is correct
-- If stuck, mail Witness
+- If stuck, note findings on bead and close with reason
 
 **2. Run the full gate suite on the rebased result:**
 
@@ -517,15 +650,37 @@ This MUST show at least 1 commit. If it shows nothing, you have no work to submi
 
 **For report-only tasks (no commits — audits, reviews, research):**
 ```bash
-gt done --status DEFERRED
+bd update {{issue}} --notes "Report complete: findings persisted to bead notes/design"
+gt exit
 ```
 
-**For code tasks — push and create PR:**
+**For code tasks — push and (maybe) create a PR:**
+
 ```bash
 # 1. Push your branch
 git push -u origin HEAD
+```
 
-# 2. Create the PR
+**2. PR handling — depends on the branching strategy you chose in `branch-setup`:**
+
+**If you chose Option A (extending an existing PR on `{{base_branch}}`):**
+
+The existing PR auto-updates from your push. DO NOT run `gh pr create` —
+a second PR against the same head creates duplicates. Just record the
+existing PR's URL:
+
+```bash
+PR_URL=$(gh pr list --head {{base_branch}} --state open --json url \
+           --limit 1 --jq '.[0].url')
+echo "Extended existing PR: $PR_URL"
+```
+
+If `$PR_URL` is empty, your branching assumption was wrong — fall through
+to Option B/C path below and open a new PR.
+
+**If you chose Option B or C (you're on your own feature branch):**
+
+```bash
 gh pr create --base {{base_branch}} --title "<type>: <short description> ({{issue}})" --body "## Summary
 <what was done and why>
 
@@ -540,18 +695,48 @@ You should see output like:
 https://github.com/<org>/<repo>/pull/<number>
 ```
 
-**3. Exit the session so the reaper can clean up:**
+**3. Create a foreman bead to track the PR review conversation:**
+```bash
+bd create --title "Foreman: PR review for {{issue}}" --type task --priority 2 \
+  --labels "<rig-label>" \
+  --description "pr_url: <the PR URL from step 2>
+source_bead: {{issue}}
+role: foreman
+formula: mol-foreman-pr-response"
 ```
-/exit
+
+**4. Save and exit (do NOT close the bead):**
+```bash
+gt exit --notes "PR created: <PR URL>. Foreman bead: <foreman-bead-id>. Summary: <what was done>"
 ```
+
+`gt exit` auto-commits any uncommitted work, pushes the branch, persists your notes
+to the bead, and exits. It's the safety net — your work is never lost even if you
+forgot to commit.
+
+**`gt exit` is a DELIVERABLE, not an epilogue (sbx-gastown-vf98i).** It is the
+thing that releases your hook and lets the reaper reclaim your slot. Because it
+is invisible in PR-space — the PR looks identical whether or not you ran it —
+it is the step most often dropped. A dozen polecats on 2026-08-11 pushed,
+opened their PR, and then sat idle forever holding a worktree and a tmux
+session; several NARRATED an exit they never performed. Saying you exited is
+not exiting. Run the command and read its output.
+
+**Do NOT close your bead.** The archivist closes it after extracting domain knowledge
+from your work. Your bead stays open as a signal that post-processing is pending.
+An open bead is not an unfinished job — do not let it keep you here.
 
 **What happens next (not your concern):**
-- The mayor reviews your PR and merges it
-- The refinery tracks the PR and closes your issue after merge
+- The daemon detects your open bead + exited session → spawns an archivist
+- The archivist extracts knowledge into domain docs and closes your bead
+- The foreman handles PR review comments
+- The daemon reaper cleans up your worktree
 
-You are NOT involved in any of that. Your PR is the deliverable.
+You are NOT involved in any of that. Your PR is one OUTPUT of this bead; the
+bead's deliverables are the PR **and** your persisted findings **and** the exit.
 
-**Exit criteria:** Branch pushed, PR created, session exited.
+**Exit criteria:** Branch pushed, PR created, `git log @{u}..HEAD` empty, and
+`gt exit` actually run (not described).
 
 When this step is complete, output the marker:
 ```
