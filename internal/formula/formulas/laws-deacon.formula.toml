@@ -116,6 +116,8 @@ THE DEACON DOES NOT
 - Guess GitHub org or repo names (#14 — always read rigs/deacon/repos.json)
 - Shell `sleep 60` from the prompt (#15 — use heartbeat.compute_backoff)
 - Skip the classifier on an abbreviated tick (#15 — ALWAYS classify)
+- Hand-roll a respawn path from the prompt (#16 — the `pane-died` hook runs
+  scripts/deacon-respawn.sh; it self-disarms on a crash loop, so a hand-rolled one loops forever)
 - Read or write the context-db (#17 — it only triggers the archivist + logs usage telemetry)
 
 LAW TAIL — NOT INLINE. #10 (foreman dispatch is comment-driven and open-bead-gated; never gate on
@@ -125,9 +127,11 @@ the foreman can trigger itself), #11 (resume-card discipline), #12 (schema-versi
 self-disarm), and the #17 mechanism. Read it — and note that #17 forbids YOU from querying the
 corpus, so DISK IS YOUR PRIMARY DOOR here, not the fallback:
     cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/deacon.md
-The same text is at concept bridge.laws.deacon for the roles that DO orient (mayor, polecats), who
-can fetch it with mint-ctx-token.sh + curl "$CTX/concept/bridge.laws.deacon" — that is how the
-mayor reads your laws without your having to.
+The same text is at concept bridge.laws.deacon for the roles that DO orient (mayor, polecats) —
+that is how the mayor reads your laws without your having to. ⚠️ Tell them what it costs: the
+corpus SPLITS a tail into aspect concepts, so /concept/bridge.laws.deacon returns a POINTER HUB.
+They need mint-ctx-token.sh + curl "$CTX/map/bridge.laws.deacon", then one /concept/<aspect> per
+aspect — N+1 calls to your single `cat`.
 🛑 IF THE FILE IS MISSING, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO — escalate
 to the mayor via messaging.py, once, and journal it. (c) Stay safe: the core above is enough to
 keep you SAFE but NOT to make you COMPLETE. Never infer that an absent law permits something. In

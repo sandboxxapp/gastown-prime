@@ -86,10 +86,13 @@ LAW TAIL — NOT INLINE. Laws #3 (the live source wins over the chunk), #4 (emit
 notes; never edit canonical JSON under context/), #6 (a miss is a KNOWN GAP — record it), #7
 (persist the orient-first reflex to your own memory), #8 (self-feedback when orientation ITSELF
 misfires), the FOREMAN CARVE-OUT (the foreman inherits orientation and does not orient for
-itself — laws-foreman #9), and the flywheel. Fetch the tail:
-    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/bridge.laws.context-db"
-Local fallback, readable from ANY worktree because $GT_ROOT is set in every polecat env:
-    cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/context-db.md
+itself — laws-foreman #9), and the flywheel.
+⚠️ AND THIS IS ITSELF A WORKED EXAMPLE OF #2 (headers-first): /concept/bridge.laws.context-db is a
+POINTER HUB, because the corpus splits a tail into aspect concepts. One get_concept on a hub gives
+you headings and the belief you are briefed. Disk is the ONE-SHOT COMPLETE read ($GT_ROOT is set
+in every polecat env); the corpus door costs N+1 calls:
+    cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/context-db.md         # complete, 1 read
+    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/map/bridge.laws.context-db"   # -> /concept/<aspect>
 🛑 IF YOU CAN REACH NEITHER, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO — in
 your first response and on your bead. (c) Stay safe: the core above is enough to keep you SAFE
 but NOT enough to make you COMPLETE, so never infer that an absent law permits something. When in
