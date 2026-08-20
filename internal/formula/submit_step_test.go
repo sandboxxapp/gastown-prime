@@ -57,9 +57,14 @@ func TestPolecatWorkSubmitStep_UsesGHPRCreate(t *testing.T) {
 }
 
 // TestPolecatWorkSubmitStep_ExitsSession verifies that the mol-polecat-work
-// submit-and-exit step instructs polecats to exit the Claude session after
-// creating a PR. Without an explicit /exit, agent_alive stays true and the
+// submit-and-exit step instructs polecats to terminate their session after
+// creating a PR. If the session stays alive, agent_alive stays true and the
 // reaper cannot clean up the polecat.
+//
+// The terminating command is `gt exit`. This test originally required a bare
+// `/exit` (93d011fb, 2026-04-13) because `gt exit` did not kill its own tmux
+// session back then; PR #45 (42173d99, 2026-04-22, sbx-gastown-xpuv) gave
+// `gt exit` a detached self-terminate, which made the extra `/exit` redundant.
 func TestPolecatWorkSubmitStep_ExitsSession(t *testing.T) {
 	content, err := GetEmbeddedFormulaContent("mol-polecat-work")
 	if err != nil {
@@ -84,9 +89,15 @@ func TestPolecatWorkSubmitStep_ExitsSession(t *testing.T) {
 
 	desc := submitStep.Description
 
-	// The step must instruct the polecat to exit its Claude session
-	// so agent_alive goes false and the reaper can clean up.
-	if !strings.Contains(desc, "/exit") {
-		t.Error("submit-and-exit step must contain '/exit' to terminate the Claude session for reaper cleanup")
+	// The step must instruct the polecat to terminate its session so
+	// agent_alive goes false and the reaper can clean up.
+	if !strings.Contains(desc, "gt exit") {
+		t.Error("submit-and-exit step must contain 'gt exit' to terminate the session for reaper cleanup")
+	}
+
+	// Exiting is a deliverable, not an epilogue — the step has to say so, or
+	// polecats push the PR and then sit idle holding a worktree and a session.
+	if !strings.Contains(desc, "DELIVERABLE") {
+		t.Error("submit-and-exit step must frame 'gt exit' as a DELIVERABLE, not an optional epilogue")
 	}
 }

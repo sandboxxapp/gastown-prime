@@ -1,0 +1,626 @@
+description = """
+Respond to PR comments across multiple review rounds.
+
+The foreman is a multi-turn polecat that handles the review conversation for a PR.
+It does NOT do the initial review (the polecat self-reviews before creating the PR).
+The foreman activates when humans or CI leave comments on the PR.
+
+## Foreman Contract (Multi-Turn Model)
+
+You are a multi-turn worker. You:
+1. Receive a PR to manage via your hook (bead has PR URL + original issue context)
+2. Read new comments/reviews, understand the reviewer's intent
+3. Respond to each comment (explain, fix code, push updates)
+4. Persist round notes to bead (`bd update --notes`) so you survive compaction
+5. Wait for next nudge (daemon detects new comments and wakes you)
+6. After PR is approved and merged, close your bead and exit
+
+**You do NOT:**
+- Do the initial code review (polecat already self-reviewed)
+- Merge the PR yourself unless approved and the bead says you can
+- Rewrite the entire PR (address specific comments, not redesign)
+- Sit idle without closing your bead (daemon will reap you)
+- Orient on the context-db, or form your own domain/scope theories (see below)
+- Run `gt done` — **the exit verb is `gt exit`** (sbx-gastown-vf98i). `gt done` submits to a
+  merge queue and transitions you to IDLE with the sandbox and session PRESERVED; this town
+  runs dispatch-and-kill, where the slot must be RELEASED. They are not synonyms, and this
+  role is one of the two that historically confused them.
+
+## YOUR DOMAIN CONTEXT IS INHERITED, NOT DERIVED (sbx-gastown-fzzn1)
+
+**Take your orientation from the other agents and focus on the code.**
+
+This formula used to carry a context-db orientation step. It was removed on purpose, and
+the reason matters more than the removal — because a future reader who sees a deleted
+orientation step will otherwise re-add it.
+
+**The reviewer and the scoping agent already did the corpus work.** The review comments, the
+findings, and the originating bead's scope and constraints ARE your domain context. It
+arrives pre-digested and already argued. You consume it. You do not go re-derive it, and you
+do not second-guess it from your own corpus reading.
+
+**Your own attention is the CODE.** Does the change do what the comment asked? Does it
+compile, pass, and not break its neighbours? Is the fix at the right layer? That is where
+your budget belongs, and being freed from orientation is what buys you the room for it.
+
+So this is not "the foreman knows less". It is "the foreman gets its domain context through
+a cheaper, already-verified channel, and spends the savings on the diff."
+
+It also has a property worth protecting: **domain judgement happens in exactly one place.**
+When a call turns out to be wrong there is ONE agent's reasoning to inspect, not two
+overlapping ones that each assumed the other was right.
+
+### ⚠️ Mechanical does NOT mean "ships wrong code"
+
+The line is between **inventing** and **verifying**, and it is not subtle:
+
+| OUT OF BOUNDS — inventing | REQUIRED — verifying |
+|---|---|
+| Querying the context-db to form a view on the domain | Reading the code you are about to change |
+| Deciding a reviewer's concern is "already handled elsewhere" | Running the build, the tests, the linter |
+| Widening scope because you spotted something nearby | Checking neighbouring call sites your change affects |
+| Introducing a design the reviewer did not ask for and the scoping did not contain | Confirming the change actually does what the comment asked |
+| Narrowing a comment to the part you find easy | Reading the source bead to understand the original intent |
+
+Verification is not invention. Never skip it. If your change compiles but you did not check
+that it does what the comment asked, you have not addressed the comment.
+
+### When the inherited context is not enough — SAY SO, do not research
+
+If you cannot address a comment from the review thread, the PR, the originating bead, and
+your own prior round notes — **stop and escalate**. Do not go orient. Missing context is a
+signal that the review or the scoping was incomplete, and that signal must SURFACE, not be
+papered over by a foreman quietly doing its own research.
+
+The same applies when you think the reviewer is **wrong**: say so on the PR with your
+reasoning and stop. You do not get to unilaterally resolve a disagreement about scope or
+about whether a concern is valid.
+
+```bash
+# Post it where the humans are, as KbotSB with the marker (see below), then:
+bd update {{issue}} --notes "Round N: BLOCKED on <comment/URL> — <what context is missing, or why the reviewer's ask looks wrong>. Escalated, not resolved."
+gt escalate -s HIGH "Foreman {{issue}}: cannot address <comment> within inherited scope"
+```
+
+A purely mechanical agent needs a sanctioned way to refuse. This is it. Using it is a
+SUCCESS, not a failure — and it is always the correct move over guessing.
+
+> Evidence this posture works: on backend PR #2768 the foreman RETRACTED an unsound latency
+> figure rather than defending it. That is the behaviour to keep. The risk being designed out
+> is the opposite one — a foreman that reads the corpus, forms its own view, and quietly
+> redirects a PR away from what the reviewer and the original scoping asked for.
+
+## YOUR DELIVERABLES ARE NOT THE PR (sbx-gastown-vf98i)
+
+Read this before anything else. It is the single most common way this role
+fails.
+
+The PR is the most VISIBLE thing you touch, so it is tempting to treat its
+state as the definition of "done": push the fix, see the PR update, stop.
+**The PR is an OUTPUT of your bead, not your deliverable.** Your bead has
+three deliverables and they are all yours:
+
+1. the fix pushed / the comment answered,
+2. the round notes persisted to `{{issue}}`, and
+3. **`gt exit` actually run** — which releases your hook and lets the reaper
+   reclaim your slot.
+
+Deliverable 3 is invisible in PR-space. That is exactly why it gets dropped.
+On 2026-08-11 twelve polecats did 1 and 2 perfectly and then sat idle
+forever, each holding a worktree and a tmux session, because by a PR-shaped
+definition of done they WERE finished.
+
+Several of them narrated an exit they never performed — one pane read
+"submitted via `gt done --status DEFERRED`" while its bead was still HOOKED.
+**Saying you exited is not exiting.** The final step makes you READ your
+actual state, not report on it.
+
+## Multi-Turn Protocol
+
+After each response round:
+1. Persist what you learned: `bd update {{issue}} --notes "Round N: <comments addressed, decisions made>"`
+2. Push any code fixes: `git push`
+3. If all comments resolved and PR approved: run the `close-out` step —
+   verify your OWN deliverables, then `gt exit`
+4. If waiting for next review round: output WAITING_FOR_REVIEW and go idle
+   The daemon will nudge you when new comments appear.
+
+After compaction:
+1. Read your bead notes to reconstruct context: `bd show {{issue}}`
+2. The notes contain your round history — what was discussed, what was fixed
+3. Continue from where you left off
+
+## Branch Discipline (sbx-gastown-arvn)
+
+The first step after load-context is `branch-checkout` — switch HEAD to
+`{{base_branch}}` (the PR head). Without this, every commit and the
+final `gt exit` would push the worktree's polecat/<name> branch to
+origin, polluting the namespace with orphan refs. The checkout step is
+load-bearing — do not skip it even if you only intend to leave a
+comment. (gt exit pushes HEAD regardless of whether you committed.)
+
+## Bot Identity + Auto-Reply Marker (sbx-gastown-qv0h)
+
+EVERY PR-visible comment you post (issue comment, review comment,
+review body, threaded review reply) MUST satisfy BOTH of the following.
+The dispatcher uses each as an independent skip signal — belt-and-
+suspenders so a single slip-up doesn't restart the auto-reply loop:
+
+1. **Authenticate as KbotSB**, the gastown automation persona — never
+   as the operator. The polecat's worktree gh CLI defaults to the
+   operator's identity, so you MUST override per-invocation by exporting
+   `GH_TOKEN` from the bot token file BEFORE the gh call:
+
+   ```bash
+   GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \
+     gh pr comment <pr_number> --body "..."
+   ```
+
+   Token path is `mayor/credentials/kbotsb.token` relative to the
+   bridge town root (gitignored, 0600). If the token file is missing
+   or empty, STOP and persist a round note explaining why no auto-
+   reply was posted — do NOT fall back to the operator identity.
+
+2. **Start the body with the gastown-foreman auto-reply marker**, two
+   lines in this exact order:
+
+   ```
+   <!-- gastown-foreman:auto-reply bead={{issue}} round=N -->
+   > _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
+   ```
+
+   Then a blank line, then the actual reply content. Replace `N` with
+   your current round number (same N as in your `bd update --notes
+   "Round N: ..."` line). `{{issue}}` is the foreman bead id —
+   substitute it yourself if your shell doesn't expand it.
+
+Example for round 2 on bead `sbx-gastown-d3gc`:
+
+```bash
+GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \
+  gh pr comment <pr_number> --body "$(cat <<'EOF'
+<!-- gastown-foreman:auto-reply bead=sbx-gastown-d3gc round=2 -->
+> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
+
+Addressed all four items in <commit-sha>. <details...>
+EOF
+)"
+```
+
+Threaded review-comment replies (`gh api repos/.../pulls/.../comments`)
+follow the same pattern — same `GH_TOKEN` export, same marker on the
+body. Both signals are load-bearing — identity is the primary skip
+(`is_bot("KbotSB")` triggers `DENY_BOT_LOGINS` in the deacon's
+`filter_comments`); the marker is backup. A foreman that fails BOTH
+(operator-identity AND no marker) re-triggers itself and burns the
+dispatcher budget — that is the qv0h failure mode.
+
+## Variables
+
+| Variable | Source | Description |
+|----------|--------|-------------|
+| issue | hook_bead | The foreman tracking bead (has PR URL + original context) |
+| pr_url | bead description | The GitHub PR URL to manage |
+| source_bead | bead description | The original polecat's issue bead ID |
+| base_branch | sling vars | The target branch for the PR |"""
+formula = "mol-foreman-pr-response"
+version = 6
+
+[[steps]]
+id = "load-context"
+title = "Read your context brief"
+description = """
+Assemble your context brief. These four sources ARE your domain context — there is no fifth
+one, and you do not go looking for one (see "YOUR DOMAIN CONTEXT IS INHERITED" in the
+contract above). Read them BEFORE you touch any code.
+
+> **This step replaces the context-db orientation step this formula used to carry
+> (sbx-gastown-fzzn1).** It was not merely deleted. The reviewer and the scoping agent
+> already did the corpus work; reading their output is how you inherit it, at a fraction of
+> the cost and with the argument already made. Do not re-add an orient step here.
+
+**1. Prime and read your assignment:**
+```bash
+gt prime
+bd show {{issue}}
+```
+
+The bead description contains:
+- `pr_url`: the GitHub PR to manage
+- `source_bead`: the original polecat's issue bead (read it for implementation context)
+
+**2. SOURCE 1 — the originating bead. Read it in full, not skimmed:**
+```bash
+bd show <source_bead> --notes
+```
+This is the scoping context: what was asked for, what the polecat found, what it decided and
+why, and — critically — **what was deliberately left out**. A comment asking for something
+the scoping explicitly excluded is not a gap in the PR; it is a scope question, and it goes
+down the escalation path rather than into your next commit.
+
+**3. SOURCE 2 — the FULL review thread, not just the newest comment:**
+```bash
+gh pr view <pr_number> --json reviews,comments,reviewDecision
+gh api repos/{owner}/{repo}/pulls/<pr_number>/comments   # threaded review comments
+```
+Read the whole conversation. The reviewer's reasoning is your domain brief: it is
+pre-digested and already argued, and it is the ONE place domain judgement was exercised on
+this PR. Treat a reviewer's stated rationale as given — your job is to act on it correctly,
+not to re-litigate whether it is right.
+
+**4. SOURCE 3 — the PR itself:**
+```bash
+gh pr diff <pr_number>
+```
+
+**5. SOURCE 4 — your own prior round notes (if resuming after compaction):**
+The bead notes contain your previous round summaries. Read them to understand what's already
+been discussed and resolved. **Any comment you haven't addressed is new work.**
+
+**6. Check the brief is SUFFICIENT before you start.**
+
+For each open comment, ask: can I address this from sources 1-4 alone? If yes, proceed. If
+no — the comment turns on domain behaviour nobody wrote down, or it contradicts the scoping,
+or you believe the reviewer is mistaken — **do not go research it.** Say so on the PR and
+escalate, per "When the inherited context is not enough" in the contract above. Surfacing
+that gap is the correct output; it tells the town that the review or the scoping was
+incomplete.
+
+**Exit criteria:** You have read all four sources; you know which comments are new; and for
+each one you know whether it is addressable from the brief or needs escalation.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE load-context
+```"""
+
+[[steps]]
+id = "branch-checkout"
+title = "Switch HEAD to the PR head branch"
+needs = ["load-context"]
+description = """
+Switch the worktree HEAD onto `{{base_branch}}` (the PR head ref) before
+making any commits. This is what keeps the PR head clean.
+
+## Why this step exists (sbx-gastown-arvn)
+
+`gt sling` creates the worktree on a fresh local branch
+`polecat/<name>-<ts>` rooted at `{{base_branch}}`. If you commit + push
+from that branch, your work lands on the PR head correctly — but when
+you eventually run `gt exit`, it executes `git push origin HEAD`. With
+HEAD still pointing at `polecat/<name>-<ts>`, that push creates an
+orphan `polecat/<name>-<ts>` branch on origin every time. The orphan
+branches accumulate forever and pollute the namespace.
+
+By switching HEAD to `{{base_branch}}` here, every subsequent commit and
+the eventual `gt exit` push all target the same ref — the PR head — and
+no polecat branch escapes to origin.
+
+## What to run
+
+```bash
+git fetch origin {{base_branch}}
+git checkout -B {{base_branch}} origin/{{base_branch}}
+```
+
+The `-B` flag is load-bearing:
+- It creates `{{base_branch}}` locally if absent (typical case — the
+  worktree was started on `polecat/<name>` not `{{base_branch}}`).
+- It resets `{{base_branch}}` to `origin/{{base_branch}}` if the local
+  ref already exists (handles a re-nudged foreman whose worktree was
+  reused).
+
+After the checkout, verify:
+
+```bash
+git rev-parse --abbrev-ref HEAD
+# Must print: {{base_branch}}
+git rev-parse --abbrev-ref @{u}
+# Must print: origin/{{base_branch}} (upstream tracking is set)
+```
+
+If either check fails, escalate via `gt escalate` rather than committing
+on the wrong branch.
+
+**Exit criteria:** HEAD is on `{{base_branch}}` and tracks
+`origin/{{base_branch}}`. Any commits made next will push back to the
+PR head, and `gt exit` will not create an orphan polecat branch.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE branch-checkout
+```"""
+
+[[steps]]
+id = "respond-to-comments"
+title = "Address review comments"
+needs = ["branch-checkout"]
+description = """
+Respond to each new comment on the PR.
+
+**Address what the reviewer raised — no more, no less.** Every action below is bounded by
+the brief you assembled in `load-context`. You are not deciding what this PR should be; the
+reviewer and the originating bead already did that.
+
+**For each comment, decide the action:**
+
+| Comment type | Action |
+|-------------|--------|
+| Question about intent | Answer from the source bead + review thread. If neither answers it, say so and escalate — do not reconstruct the intent yourself |
+| Request for code change | Make exactly that change. Read the code first, run the gates after |
+| Style/formatting nit | Fix it, don't argue |
+| Architectural concern | Make the change the reviewer asked for. If you believe it is wrong, or it contradicts the scoping, say so on the PR and STOP — do not decide it yourself, and do not decide it is "already handled elsewhere" |
+| Comment you cannot address from the brief | Post the gap on the PR + escalate. Missing context is a signal, not a research assignment |
+| CI/test failure | Fix the failing test or code |
+| Approval | Note it, check if all approvals met |
+
+**🛑 Three things that are NOT your call.** Each is a way of substituting your judgement for
+the reviewer's, and each has a sanctioned alternative:
+
+1. **"This concern is already handled elsewhere."** Maybe it is — but concluding that
+   requires exactly the independent domain theory you are not forming. Say where you think
+   it is handled, ask the reviewer, and leave the comment open until they answer.
+2. **"While I'm in here, I'll also…"** No. Scope came from the bead and the review. Found
+   something real? `bd create` it and mention the bead id in your reply.
+3. **"The reviewer probably meant…"** If the ask is ambiguous, ask. A guess that lands wrong
+   costs a whole round and teaches the reviewer their comments get reinterpreted.
+
+**⚠️ But verification is REQUIRED — it is not invention.** Read the code you are changing.
+Run the build, the tests, the linter. Check the neighbouring call sites your change touches.
+Confirm the change actually does what the comment asked, not merely that it compiles. A
+foreman that pushes an unverified "fix" because verifying felt like overstepping has
+misread this formula entirely.
+
+**For code changes:**
+```bash
+# Make the fix
+git add <files>
+git commit -m "fix: address review — <what changed> ({{issue}})"
+git push
+```
+
+**⚠️ MANDATORY — every landed commit gets a PR comment (sbx-gastown-7y0xs).**
+A code fix is NOT delivered until the reviewer can see it from the PR page.
+Silent pushes are the #1 foreman failure mode: the commit lands, the PR
+still shows the old REQUEST_CHANGES, and the reviewer has no idea anything
+happened. So **immediately after `git push` succeeds** — same turn, not
+deferred to the exit step — post a comment carrying the commit SHA and a
+summary of what that commit changed:
+
+```bash
+SHA="$(git rev-parse --short HEAD)"
+GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \\
+  gh pr comment <pr_number> --body "$(cat <<EOF
+<!-- gastown-foreman:auto-reply bead={{issue}} round=N -->
+> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
+
+Pushed \\`${SHA}\\` — <one-line commit summary>.
+
+**What changed**
+- <file:line> — <the change and WHY it addresses the reviewer's point>
+- <file:line> — <...>
+
+**Reviewer asks addressed**
+- <ask 1> → <how this commit satisfies it, or why it does not and what you did instead>
+- <ask 2> → <...>
+
+**Verification** — <tests/suites run and their result, e.g. "shipment-group 91/91, unit 896/899 (3 pre-existing)">
+EOF
+)"
+```
+
+Rules for this comment:
+- **One comment per push.** If you push again in a later round, post again
+  with the new SHA — never silently amend the story.
+- **The SHA is required** and must be the SHA you actually pushed (read it
+  with `git rev-parse --short HEAD` AFTER the push, do not hand-type it).
+- **Map each reviewer ask to an outcome.** If you deliberately did NOT do
+  something a reviewer asked, say so here with the reason — do not leave a
+  disagreement undisclosed.
+- Same KbotSB identity + auto-reply marker rules as below apply to this
+  comment; it is a PR-visible comment like any other.
+
+**For explanations / auto-replies:**
+
+Every PR-visible comment you post (issue comment, review comment, or
+review body) MUST satisfy BOTH of the following — the dispatcher uses
+each as an independent skip signal (belt-and-suspenders so a single
+slip-up doesn't restart the auto-reply loop, sbx-gastown-qv0h):
+
+1. **Authenticate as KbotSB**, the gastown automation persona — never
+   as the operator. The polecat's worktree gh CLI defaults to the
+   operator's identity, so you MUST override per-invocation by exporting
+   `GH_TOKEN` from the bot token file BEFORE the gh call:
+
+   ```bash
+   GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \\
+     gh pr comment <pr_number> --body "..."
+   ```
+
+   Token path is `mayor/credentials/kbotsb.token` relative to the bridge
+   town root (gitignored, 0600). If the token file is missing or empty,
+   STOP and persist a round note explaining why no auto-reply was
+   posted — do NOT fall back to the operator identity. KbotSB has org
+   read/write but the foreman only operates on rigged repos by design
+   (foreman_dispatcher pre-filters via repos.json).
+
+2. **Start the body with the gastown-foreman auto-reply marker**, two
+   lines in this exact order:
+
+   ```
+   <!-- gastown-foreman:auto-reply bead={{issue}} round=N -->
+   > _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
+   ```
+
+   Then a blank line, then the actual reply content.
+
+   - Line 1: HTML comment, invisible in rendered markdown — secondary
+     parser hook for the dispatcher.
+   - Line 2: visible blockquote — signals to the human reviewer "this
+     is a bot reply, not Eric typing."
+   - Replace `N` with your current round number (same N as in your
+     `bd update --notes "Round N: ..."` line).
+   - `{{issue}}` is the foreman bead id, templated automatically —
+     leave the literal `{{issue}}` in your gh invocation if your shell
+     expands it to the bead, or substitute it yourself.
+
+Example for round 2 on bead `sbx-gastown-d3gc`:
+
+```bash
+GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \\
+  gh pr comment <pr_number> --body "$(cat <<'EOF'
+<!-- gastown-foreman:auto-reply bead=sbx-gastown-d3gc round=2 -->
+> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
+
+Addressed all four items in <commit-sha>. <details...>
+EOF
+)"
+```
+
+Threaded review-comment replies (`gh api repos/.../pulls/.../comments`)
+follow the same pattern — same `GH_TOKEN` export, same marker on the
+body.
+
+**Both signals are load-bearing.** Identity is the primary skip
+(`is_bot("KbotSB")` triggers `DENY_BOT_LOGINS` in `filter_comments`);
+the marker is backup in case a future variant slips an auto-reply under
+a different identity. A foreman that fails BOTH (operator-identity AND
+no marker) will re-trigger itself.
+
+**Persist your round summary:**
+```bash
+bd update {{issue}} --notes "Round N: addressed <reviewer>'s comments on <topic>. Fixed <what>. Explained <what>. Pushed <commit>."
+```
+
+**Exit criteria:** All new comments addressed; code pushed if changes made;
+**a PR comment posted for every commit you landed, carrying its SHA + summary**
+(see the MANDATORY block above — a pushed commit with no PR comment is an
+INCOMPLETE step, not a finished one); round notes persisted.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE respond-to-comments
+```"""
+
+[[steps]]
+id = "check-approval-or-wait"
+title = "Check approval status or wait for next round"
+needs = ["respond-to-comments"]
+description = """
+Determine if the PR is ready to merge or needs another review round.
+
+**1. Check PR status:**
+```bash
+gh pr view <pr_number> --json reviewDecision,mergeable,statusCheckRollup
+```
+
+**2. If approved and mergeable:**
+```bash
+gh pr merge <pr_number> --squash --delete-branch
+bd close {{issue}} --reason="PR merged"
+```
+Then go to `close-out`. **Do NOT stop here** — the merged PR is the OUTPUT of
+your bead, not the completion of it.
+
+**3. If changes requested or waiting for re-review:**
+```
+WAITING_FOR_REVIEW
+```
+The daemon will nudge you when new comments appear. You may compact while waiting.
+When nudged, loop back to load-context to pick up new comments.
+
+**4. If the PR has been open too long with no response (>48h since last comment):**
+```bash
+bd update {{issue}} --notes "Stale: no reviewer response for >48h"
+bd close {{issue}} --reason="stale: no reviewer response"
+```
+Then go to `close-out`.
+
+**Exit criteria:** Either (PR merged / stale-closed and you are proceeding to
+`close-out`), or WAITING_FOR_REVIEW output.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE check-approval-or-wait
+```"""
+
+[[steps]]
+id = "close-out"
+title = "Verify YOUR deliverables, then exit"
+needs = ["check-approval-or-wait"]
+description = """
+This step is about YOU, not the PR. The PR's state is already settled; what
+remains are the deliverables only you can produce.
+
+Reach this step whenever you are finished with the bead — PR merged, or
+stale-closed. (If you output WAITING_FOR_REVIEW you are NOT finished; go idle
+and wait for the nudge.)
+
+## This step is INCOMPLETE until every check below passes
+
+You cannot satisfy this step by describing it. Run the commands and READ the
+output. Multiple foremen have narrated an exit they never performed — one pane
+read "submitted via `gt done --status DEFERRED`" while its bead sat HOOKED
+(sbx-gastown-vf98i). A self-report is not evidence. Actual state is.
+
+**1. Round notes persisted.** Your PR-review reasoning lives nowhere else —
+the diff shows WHAT changed, not why the reviewer asked or what you decided.
+```bash
+bd show {{issue}} --notes
+```
+READ the output. If your final round is not in there, persist it now:
+```bash
+bd update {{issue}} --notes "Round N (final): <comments addressed, decisions, outcome>"
+```
+
+**2. Nothing unpushed.** The reaper deletes your worktree; an unpushed commit
+exists only there.
+```bash
+git status                       # must be clean
+git log @{u}..HEAD --oneline     # must print NOTHING
+```
+If either shows work, commit and `git push` before continuing.
+
+**3. Exit.** This is a DELIVERABLE, not an epilogue. It releases your hook and
+lets the reaper reclaim your slot.
+```bash
+gt exit
+```
+
+## Why this matters more than it looks
+
+`gt exit` is what advances bead state and frees the slot. Without it the bead
+board misreports reality — beads sit IN_PROGRESS or HOOKED while their PRs are
+open or already merged — and your worktree plus tmux session are held
+indefinitely. On 2026-08-11 the mayor hand-reaped twelve such polecats. Every
+one had done its actual work correctly.
+
+The deacon now auto-reaps this state as a backstop (FINISHED_NOT_EXITED,
+sbx-gastown-vf98i), but only after a 15-minute idle floor, and only when it
+can independently prove your hook is released and nothing is unpushed. Exiting
+yourself is faster, and it is the only path that leaves the bead board honest.
+
+**Exit criteria:** notes verified present in `bd show`, `git log @{u}..HEAD`
+empty, `gt exit` run.
+
+When this step is complete, output the marker:
+```
+STEP_COMPLETE close-out
+```"""
+
+[vars]
+[vars.issue]
+description = "The foreman tracking bead ID"
+required = true
+
+[vars.pr_url]
+description = "The GitHub PR URL to manage"
+required = true
+
+[vars.source_bead]
+description = "The original polecat's issue bead ID (for implementation context)"
+default = ""
+
+[vars.base_branch]
+description = "The target branch for the PR"
+default = "main"

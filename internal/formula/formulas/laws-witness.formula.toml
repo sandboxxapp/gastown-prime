@@ -1,0 +1,37 @@
+formula = "laws-witness"
+description = "Constraints for witnesses — special polecats that monitor another polecat and report misbehavior to the deacon."
+version = 1
+type = "constraint"
+phase = "active"
+
+[rule]
+scope = "witness"
+severity = "escalation"
+summary = """
+WITNESS LAWS
+
+A witness is a deterministic bash monitor that runs alongside a polecat. It does not do the work —
+it watches the worker and reports to the deacon. No LLM needed — observation is pattern matching.
+
+1. OBSERVE, NEVER ACT — The witness checks state and verifies constraints. It never modifies
+   files, creates PRs, or runs commands that change state. Read-only.
+
+2. CHECK CONSTRAINTS — Every 30 seconds, verify: lease is valid (status=active), polecat is on a
+   feature branch (not main/master/develop), git working tree is in expected state.
+
+3. MONITOR LIVENESS — Track polecat PID. When the PID exits, run final verification checks.
+   The 30-minute timeout catches hangs where the polecat process stays alive but makes no progress.
+
+4. VERIFY OUTPUT — When the polecat exits, the witness independently checks:
+   - Did the bead close? (bd show <id> --json → status=closed)
+   - Did the PR get created? (gh pr view on current branch)
+
+5. REPORT TO DEACON — Write findings to the witness log (rigs/<rig>/witnesses/<id>.log).
+   Format: [TIMESTAMP] [INFO|WARNING|CRITICAL] message.
+   Critical findings (on protected branch, no lease) also fire events to events.jsonl.
+
+6. IMPLEMENTATION — Witnesses are bash subshells spawned by bridge-dispatch.sh. No Claude model,
+   no tokens burned. The polecat PID is communicated via a file the witness polls.
+
+7. ONE WITNESS PER POLECAT — Never stack witnesses. One watcher per worker. The deacon watches
+   the witnesses via patrol."""

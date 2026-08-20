@@ -55,7 +55,7 @@ each, await their findings, apply fixes to the plan, then proceed to the next ro
 """
 formula = "mol-idea-to-plan"
 type = "workflow"
-version = 2
+version = 3
 
 [[steps]]
 id = "intake"
@@ -71,6 +71,16 @@ Read the conversation context and produce a structured PRD draft.
 **Your task:**
 Pick a short slug for this review (e.g., "notification-levels", "merge-queue-v2") and use it
 as `{{review_id}}` in all paths below. This ID is reused by downstream steps.
+
+**Orient on the affected domains first (laws-context-db).**
+Ground the PRD in real architecture, not guesses — pull what's known about the systems this
+idea touches:
+```bash
+ctx query "<system or domain the idea touches>" --rig <rig>    # repeat per affected rig
+```
+(`ctx` is the local CLI, not --mcp; skip if unset.) Seed the Constraints / Rough Approach /
+Open Questions from it. Orientation only — flag any exact/current fact (a live limit, a
+schema) to verify at the source during design, not settled truth in the plan.
 
 Write a structured PRD draft to `.prd-reviews/{{review_id}}/prd-draft.md`
 

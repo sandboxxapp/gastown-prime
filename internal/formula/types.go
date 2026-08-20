@@ -22,6 +22,10 @@ const (
 	TypeExpansion FormulaType = "expansion"
 	// TypeAspect is an aspect-based formula for multi-aspect parallel analysis.
 	TypeAspect FormulaType = "aspect"
+	// TypeConstraint is a laws formula: a role's standing rules, with no steps
+	// to execute. Constraint formulas are reference text (`gt formula show
+	// laws-<role>`) and are never run or poured.
+	TypeConstraint FormulaType = "constraint"
 )
 
 // Formula represents a parsed formula.toml file.
@@ -34,6 +38,7 @@ type Formula struct {
 	Pour        bool        `toml:"pour"`        // If true, steps are materialized as sub-wisps with checkpoint recovery. Default false (inline/root-only).
 	Agent       string      `toml:"agent"`       // Default agent for all legs (GH#2118)
 	ReviewOnly  bool        `toml:"review_only"` // If true, all legs are analysis-only — no code commits expected (gt-kvf)
+	Phase       string      `toml:"phase"`       // Lifecycle phase the formula applies to (constraint formulas: "active").
 
 	// Convoy-specific
 	Inputs    map[string]Input `toml:"inputs"`
@@ -55,6 +60,20 @@ type Formula struct {
 
 	// Aspect-specific (similar to convoy but for analysis)
 	Aspects []Aspect `toml:"aspects"`
+
+	// Constraint-specific (laws-* formulas)
+	Rule *Rule `toml:"rule"`
+}
+
+// Rule is the body of a constraint (laws-*) formula: the standing rules for a
+// role, carried as prose rather than executable steps.
+type Rule struct {
+	// Scope is the role the rules bind, e.g. "polecat", "foreman".
+	Scope string `toml:"scope"`
+	// Severity is what happens on violation, e.g. "escalation".
+	Severity string `toml:"severity"`
+	// Summary is the rule text itself.
+	Summary string `toml:"summary"`
 }
 
 // ComposeRules defines how a formula can be composed with others.
@@ -177,7 +196,7 @@ func (v *Var) UnmarshalTOML(data any) error {
 // IsValid returns true if the formula type is recognized.
 func (t FormulaType) IsValid() bool {
 	switch t {
-	case TypeConvoy, TypeWorkflow, TypeExpansion, TypeAspect:
+	case TypeConvoy, TypeWorkflow, TypeExpansion, TypeAspect, TypeConstraint:
 		return true
 	default:
 		return false

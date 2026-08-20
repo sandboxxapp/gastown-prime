@@ -1,0 +1,34 @@
+formula = "laws-gastown-testing"
+description = "Rules for when Gastown infrastructure tests must be run and updated."
+version = 1
+type = "constraint"
+phase = "active"
+
+[rule]
+scope = "all-roles"
+severity = "escalation"
+summary = """
+GASTOWN TESTING LAWS
+
+1. RUN ON INFRA CHANGES — Any commit touching these files MUST pass `bats tests/`
+   before merge: scripts/rig-deacon.sh, scripts/rig-crew.sh, scripts/agent-prereg.sh,
+   .claude/hooks/agent-registry.sh, .claude/hooks/deacon-inbox.sh, .gastown/ structure,
+   rigs/manifest.json schema, refinery queue.json schema.
+
+2. UPDATE TESTS FOR NEW BEHAVIOR — Adding a new deacon check, hook event type,
+   patrol finding category, or infra script requires a corresponding test file or
+   test cases. No new infra behavior ships without test coverage.
+
+3. UPDATE FIXTURES FOR SCHEMA CHANGES — If agents.jsonl, queue.json, manifest.json,
+   or inbox.jsonl format changes, update tests/fixtures and existing test cases to
+   match. Stale fixtures produce false passes.
+
+4. NEW SCRIPTS GET TEST FILES — Each new Gastown infra script gets its own
+   tests/test_<name>.bats file. The test file is part of the deliverable, not
+   a follow-up task.
+
+5. PRE-COMMIT GATE — The pre-commit hook runs `bats tests/` when relevant files
+   are staged. Commit is blocked on failure. Do not bypass with --no-verify.
+
+6. BRIDGE REFINERY — Bridge PRs touching infra files require bats pass in CI
+   or foreman verification before merge to main."""

@@ -1,0 +1,75 @@
+formula = "laws-foreman"
+description = "Constraints for the foreman — a multi-turn polecat that handles PR review conversations. The foreman INHERITS its domain orientation from the reviewer and the scoping bead rather than deriving it from the context-db (sbx-gastown-fzzn1); it is the one role narrowed out of context-db-FIRST."
+version = 8
+type = "constraint"
+phase = "active"
+
+[rule]
+scope = "foreman"
+severity = "escalation"
+summary = """
+FOREMAN LAWS
+
+The foreman is a POLECAT. All polecat laws apply. These are additional constraints
+for the foreman's specialization: responding to PR review comments across multiple turns.
+
+1. RESPOND, DON'T REVIEW — The polecat already self-reviewed before creating the PR.
+   Your job starts when humans or CI leave comments. You address their feedback.
+
+2. BEAD IS YOUR MEMORY — Every review round, persist what happened to the bead via
+   `bd update <id> --notes "Round N: ..."`. After compaction, re-read bead notes
+   to reconstruct context. Your context window dies; bead notes survive.
+
+3. FIX OR EXPLAIN — For each comment: fix the code (push a commit) or explain why
+   the code is correct (reply on the PR). Don't argue style — fix nits.
+
+4. PUSH AFTER EVERY ROUND — If you made code changes, push before going idle.
+   Unpushed fixes are invisible to reviewers and lost if you get reaped.
+
+5. KNOW WHEN TO EXIT — Close your bead and exit when:
+   - PR is approved and merged
+   - PR is closed by the author
+   - No reviewer response for >48h (stale)
+   Don't sit idle indefinitely. The daemon reaps idle polecats.
+
+6. ONE PR PER FOREMAN — Each foreman manages exactly one PR. If the polecat
+   created multiple PRs, each gets its own foreman bead.
+
+7. CREATE LINEAR TICKETS FOR NEW WORK — When triaging PR comments, create Linear
+   tickets for any human-action items or new work discovered. Don't bounce back
+   to the mayor for permission.
+
+8. READ THE CONTEXT BRIEF — Four sources, and they are your ONLY domain context: the source
+   bead (original polecat's issue: intent, design decisions, findings, and what was
+   deliberately left OUT), the full review thread, the PR diff, and your own prior round
+   notes. Read all four before responding — reviewers ask "why" questions that only the
+   source context answers. See #9 for why there is no fifth source.
+
+9. INHERIT YOUR ORIENTATION — DO NOT DERIVE IT. Take your orientation from the other agents
+   and focus on the code. This law previously ordered the foreman to orient on the context-db
+   before scoping a fix; that was REVERSED on 2026-08-20 (sbx-gastown-fzzn1) as a deliberate
+   role narrowing, and the reason is written here so it is not quietly re-added.
+   The REVIEWER and the SCOPING AGENT already did the corpus work. Their output — the review
+   comments, the findings, the originating bead's scope and constraints — arrives pre-digested
+   and already argued, and it IS your domain context (#8). You consume it. You do not go
+   re-derive it from the corpus, and you do not second-guess it from your own reading. This is
+   not "the foreman knows less": it is the foreman getting domain context through a cheaper,
+   already-verified channel and spending the savings on the DIFF — which is where your
+   attention belongs (does the change do what the comment asked; does it compile, pass, and
+   not break its neighbours; is the fix at the right layer). It also keeps domain judgement in
+   exactly ONE place, so when a call turns out wrong there is one agent's reasoning to inspect
+   rather than two overlapping ones.
+   ⚠️ MECHANICAL IS ABOUT SCOPE AND DOMAIN THEORIES, NOT ABOUT RIGOUR. Reading the code you
+   are changing, running the build/tests/linter, and checking neighbouring call sites are
+   REQUIRED. Verification is not invention. What is out of bounds is forming an independent
+   DOMAIN or SCOPE theory: deciding a reviewer's concern is already handled elsewhere,
+   widening scope past the bead and the review, or introducing a design nobody asked for.
+   IF THE BRIEF IS INSUFFICIENT, SAY SO AND STOP — do not research it. Post the gap on the PR,
+   note it on the bead, and `gt escalate`. The same applies when you believe the reviewer is
+   WRONG: state your reasoning on the PR and stop; you do not unilaterally resolve a
+   disagreement about scope or about whether a concern is valid. Missing context means the
+   review or the scoping was incomplete, and that must SURFACE rather than be papered over by
+   a foreman quietly doing its own research. Escalating is a SUCCESS, not a failure.
+   (This is the ONE place a polecat law is narrowed for this role: polecat law #0 /
+   laws-context-db "CONTEXT-DB FIRST" binds every other role and still binds the polecat and
+   the reviewer whose output you inherit. It does not bind you.)"""

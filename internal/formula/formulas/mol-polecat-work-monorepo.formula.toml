@@ -59,9 +59,34 @@ to post comments and address them all before submitting to the merge queue.
 | AI reviewer comment | Fix or won't-fix, reply to every comment. |
 | Blocked on external | Mail Witness for help, mark yourself stuck |
 | Context filling | Use gt handoff to cycle to fresh session |
-| Unsure what to do | Mail Witness, don't guess |"""
+| Unsure what to do | Decide from the dispatch bead, record it (notes + PR), and PROCEED (see below). Don't guess silently, and NEVER raise an interactive prompt. |
+
+## Autonomous Decisions — NEVER Block on an Interactive Prompt
+
+**HARD RULE: you run headless. There is no operator in your session.** Any
+prompt that waits for a human keystroke — an `AskUserQuestion` menu, an
+interactive picker, a numbered decision menu, an "Enter to select / Tab/Arrow
+keys to navigate" affordance, a "Do you want to proceed?" confirmation — will
+hang INDEFINITELY and burn your slot. A prior polecat (arkship, #2624 rework)
+sat ~50 minutes at such a menu. **NEVER raise one.**
+
+When you hit a decision fork (which option? which name? which base? proceed?):
+
+1. **Decide from the DISPATCH BEAD** — it froze the intent; it is the
+   operator's voice. Ground your best judgment in the bead + the codebase + rig
+   domain docs.
+2. **Record the decision + rationale in BOTH** the bead turn-notes
+   (`bd update {{issue}} --notes "turn N: decided X over Y because Z (autonomous)"`)
+   AND the PR description under a `## Decisions made autonomously` heading.
+3. **PROCEED.** The reviewer/operator course-corrects on the PR — the right,
+   non-blocking channel. This also applies to AI-reviewer forks (CodeRabbit,
+   Greptile): reply with your decision + reasoning, don't stall.
+
+Reserve async HELP notes for a GENUINE hard blocker (cannot proceed at all),
+and even then note + proceed — NEVER hang on an interactive prompt. (Mirrors
+laws-polecat #13; the deacon backstops any menu-park as `AWAITING_DECISION`.)"""
 formula = "mol-polecat-work-monorepo"
-version = 1
+version = 6
 
 [[steps]]
 id = "load-context"
@@ -102,18 +127,130 @@ gt mail inbox
 - You understand what to do
 - Required resources are available
 
-If blocked or unclear, mail Witness immediately:
+If a requirement is ambiguous, do NOT raise an interactive prompt and do NOT
+stall — **decide from the dispatch bead, record the decision (bead notes + a
+`## Decisions made autonomously` heading in the PR), and PROCEED** (see the
+"Autonomous Decisions" section above). Reserve mailing Witness for a GENUINE
+hard blocker, and even then proceed with your best assumption rather than
+hanging:
 ```bash
 gt mail send <rig>/witness -s "HELP: Unclear requirements" -m "Issue: {{issue}}
-Question: <what you need clarified>"
+Question: <what you need clarified>
+Proceeding with: <the assumption you made so work isn't blocked>"
 ```
 
 **Exit criteria:** You understand the work and can begin implementation."""
 
 [[steps]]
+id = "domain-context"
+title = "Orient on the domain (context-db)"
+needs = ["load-context"]
+description = """
+Orient in the rig's domain before you touch code — the read side of laws-context-db (the
+full orientation-only / verify-at-source / emit-notes contract lives there).
+
+Skim the "Retrieved Domain Context (orientation only)" block in your primed context — the
+dispatcher pre-pulled it for this bead — then pull more through the **context-db agent
+door**. Works from any cwd: no bridge checkout, no `gcloud run services proxy`, no MCP.
+(Do NOT use `ctx query` — `ctx` is not on PATH in a dispatched session; that door is dead.)
+
+```bash
+CTX=https://context-db-2hazwepeiq-uc.a.run.app
+TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
+        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+
+# 1. orient — returns an INDEX per hit (summary + `##` outline), NOT bodies
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X POST "$CTX/search" -d '{"query":"<subsystem you are touching>","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+
+# 2. open the ONE concept you picked
+curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
+```
+
+- Use `top_k`, NOT `limit` — `limit` is silently ignored.
+- Liveness probe is `GET /agents` → 200. `/healthz` is **404 by design**, not an outage.
+- **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — but treat it as a stopgap, not a
+  substitute: the docs summarise, and expect to verify at source anyway. Never skip
+  orientation and go straight to source.
+
+Orientation only: verify any exact/current fact (file:line, signature, live state) at the
+source before relying on it. Durable findings → notes (the persist-findings step handles it).
+
+**Exit:** you've skimmed the seed and know how to query the agent door for more. No artifact required."""
+
+[[steps]]
+id = "propose-plan"
+title = "Propose a plan and pause for one nudge window"
+needs = ["domain-context"]
+description = """
+You now understand the assignment and have oriented on the domain. Before you write
+any code, surface a short PLAN so the mayor/operator gets ONE well-aimed interception
+point — the only turn where a `gt nudge` can re-scope or redirect you *before* you
+commit to the work.
+
+**This does NOT stall unattended dispatch.** The default is PROCEED-ON-SILENCE: no
+human in the loop ⇒ no wait ⇒ throughput unharmed. You propose, you listen for
+exactly one window, and absent a nudge you proceed on your own plan. You are NOT
+waiting for approval — silence IS approval.
+
+This honors **law #9**: the GOAL (the frozen bead description) does not move. Only the
+PLAN moves from "fully frontloaded + auto-executed on turn 1" to "proposed →
+confirmable → executed."
+
+**1. Write a SHORT plan to the bead via `--design`:**
+
+Keep it tight — scope boundaries, the files you expect to touch, your approach in a
+sentence or two, and (most important for the operator) the explicit NON-goals.
+
+```bash
+bd update {{issue}} --design "PLAN:
+Scope: <what this dispatch will and will not change, in one or two lines>
+Files I expect to touch:
+- <path> — <why>
+- <path> — <why>
+Approach: <1–3 sentences on how you'll do it>
+NON-goals: <what you are deliberately NOT doing — the lines the operator would
+            most want to correct if your read of the scope is wrong>"
+```
+
+**2. Post a one-line turn note** so the plan shows up in `bd show {{issue}} --notes`
+playback for the mayor patrol:
+
+```bash
+bd update {{issue}} --notes "turn N: PLAN_PROPOSED — <one-line scope summary>. Proceeding on silence absent a nudge."
+```
+
+**3. Emit the plan marker so the mayor patrol / daemon can spot the gate:**
+```
+PLAN_PROPOSED {{issue}}
+```
+
+**4. Pause for ONE bounded nudge window, then proceed:**
+
+Look once for a queued nudge or a fresh `bd update --append-notes` on this bead
+(law #9's redirection channel — nudges arrive as `<system-reminder>` blocks on your
+next turn). This is a SINGLE bounded check, not a poll loop and not an indefinite
+wait:
+
+- **If a nudge / new instruction is present:** fold it into your plan. If it
+  fundamentally changes the GOAL (wrong rig, wrong task), note that on the bead and
+  `gt done`/exit for re-dispatch — do not silently absorb a goal change. Otherwise
+  adjust scope and continue.
+- **If there is NO nudge (the default):** PROCEED IMMEDIATELY to `branch-setup`. Do
+  not wait further, re-emit the marker, or ask the operator anything. Silence means
+  your plan stands.
+
+Do NOT busy-wait, sleep on a timer, or stall the session waiting for input. The window
+is "your next turn after emitting the marker," nothing longer.
+
+**Exit criteria:** Plan written to `{{issue}}` `--design`, turn note posted,
+`PLAN_PROPOSED` marker emitted, and exactly one nudge window checked. On silence you
+proceed; on a nudge you fold it in (or exit for re-dispatch on a goal change)."""
+
+[[steps]]
 id = "branch-setup"
 title = "Set up working branch"
-needs = ["load-context"]
+needs = ["propose-plan"]
 description = """
 Ensure you're on a clean feature branch ready for work.
 
@@ -181,23 +318,60 @@ Do the actual implementation work.
 - Keep changes scoped to the assigned issue
 - Don't gold-plate or scope-creep
 
-**Persist findings as you go (CRITICAL for session survival):**
-Your session can die at any time (context limit, crash, SIGKILL). Code changes
-survive in git, but analysis, findings, and decisions exist only in your context
-window. Persist them to the bead so they survive session death:
+**Post-exploration persistence (REQUIRED before writing code):**
+
+Before you write a line of implementation code, you have read the surface area
+for this task — the files, APIs, data shapes, and invariants involved. That
+knowledge exists ONLY in your context window right now. If your session dies
+here, the next polecat starts from zero. Persist it to the bead:
+
 ```bash
-# After completing significant analysis or reaching conclusions:
-bd update {{issue}} --notes "Findings so far: <what you discovered>"
-# For detailed reports, use --design:
-bd update {{issue}} --design "<structured findings>"
+bd update {{issue}} --notes "Exploration findings:
+- <file:line> <what this code does / why it matters>
+- API shape: <endpoint / function signature / response shape>
+- Required fields: <enum values, validation rules, invariants>
+- <any undocumented or surprising behavior>"
 ```
-Do this BEFORE closing molecule steps, not after. If your session dies between
-persisting and closing, the findings survive. If you close first, they're lost.
+
+Concrete prompts (answer at least one, in real words, with file:line attribution):
+- What files/APIs/data shapes did you discover?
+- What invariants did you confirm or learn?
+- What is the current shape — and what does your change actually touch?
+- What did you try that did NOT work, and why?
+
+**What IS worth persisting** (archivist-collatable):
+- API shape discoveries: endpoint paths, response shapes, nested structures
+- Undocumented or surprising behavior, found in source
+- Required field sets, enum values, validation rules
+- Design decisions with rationale ("chose X over Y because Z")
+- File:line attribution for key logic
+- Anti-patterns or pitfalls found in existing code
+
+**What is NOT worth persisting** (skip — don't pad):
+- Restating the task requirements
+- Things visible in the PR diff
+- Generic "I read the code" statements with no substance
+
+**Trivial work exemption.** If this is a one-line dep bump, a config flip, or
+any change where no real knowledge was discovered, record the explicit marker
+and move on — do NOT invent content:
+
+```bash
+bd update {{issue}} --notes "no-findings: <brief reason, e.g., 'trivial dep bump, no API surface touched'>"
+```
+
+The `no-findings:` marker is legitimate. Padded fake findings are worse than
+none — they poison the archivist's output.
 
 **For report-only tasks** (audits, reviews, research): your findings ARE the
 deliverable. There are no code changes to commit. You MUST persist all findings
 to the bead via --notes or --design. Without this, your entire work product is
 lost when the session ends.
+
+**Re-persist mid-implementation** if you discover something non-obvious during
+coding (an invariant you didn't see before, a gotcha, an error the compiler
+surfaced that reveals an undocumented constraint). Append to --notes. The
+archivist collates across all your updates.
 
 **Commit frequently (for code tasks):**
 ```bash
@@ -217,8 +391,14 @@ bd create --title "Found: <description>" --type bug --priority 2
 
 Do NOT fix unrelated issues in this branch.
 
-**If stuck:**
-Don't spin for more than 15 minutes. Mail Witness:
+**If you hit a decision fork (which approach? which name? proceed?):**
+NEVER raise an interactive prompt — you are headless and it will hang forever.
+Decide from the dispatch bead, record it (bead note + `## Decisions made
+autonomously` in the PR), and PROCEED. See the "Autonomous Decisions" section.
+
+**If stuck (a GENUINE hard blocker — cannot proceed at all):**
+Don't spin for more than 15 minutes. Persist the blocker and proceed with your
+best assumption where possible rather than hanging:
 ```bash
 gt mail send <rig>/witness -s "HELP: Stuck on implementation" -m "Issue: {{issue}}
 Trying to: <what you're attempting>
@@ -265,9 +445,90 @@ If you accidentally modified unrelated files, remove those changes.
 **Exit criteria:** Changes are clean, reviewed, and ready for build check."""
 
 [[steps]]
+id = "persist-findings"
+title = "Persist approach, rationale, and gotchas"
+needs = ["self-review"]
+description = """
+You just finished self-review — you have clarity on what you built, why you
+built it that way, and what surprised you. This is the *only* moment where
+that rationale is cheap to extract. In an hour it's gone. Persist it now.
+
+This step is structural, not optional: `gt exit` / `gt done` assembles the
+domain note from this bead's `Notes` + `Design` fields + wisp notes. If
+they're empty, the archivist has nothing to collate and the domain note
+becomes a 183-byte stub of branch boilerplate.
+
+**1. Record the approach + rationale to `--design`:**
+
+```bash
+bd update {{issue}} --design "Approach:
+<what you built, in 1–3 sentences>
+
+Rationale:
+<why this design over the alternatives you considered>
+
+Key files:
+- <path>:<lineno> — <what changed / why>
+- <path>:<lineno> — <what changed / why>
+
+Alternatives considered:
+<X, rejected because Y>"
+```
+
+Design is for the polished story: a reviewer reading only `bd show {{issue}}`
+should understand *why* the PR looks the way it does.
+
+**2. Append gotchas / surprises discovered during implementation to `--notes`:**
+
+```bash
+bd update {{issue}} --notes "Implementation gotchas:
+- <undocumented behavior you tripped on>
+- <constraint discovered by compiler / test runner>
+- <pitfall the next polecat should know about>"
+```
+
+Notes is the raw field journal. Small, discrete, source-attributed facts.
+
+**3. What to write vs skip (same rubric as the implement step):**
+
+GOOD (archivist-collatable, write these):
+- API shape discoveries (endpoint paths, response shapes, nested structures)
+- Undocumented or surprising behavior
+- Required field sets, enum values, validation rules
+- Design decisions with rationale
+- File:line attribution for key logic
+- Anti-patterns or pitfalls found in existing code
+
+SKIP (do not pad):
+- Restating the task requirements
+- Things visible in the PR diff (`git diff` shows those already)
+- Trivial dep bumps or one-line fixes — use the explicit exemption:
+  ```bash
+  bd update {{issue}} --notes "no-findings: <brief reason>"
+  ```
+
+**4. Verify the persistence took effect:**
+
+```bash
+bd show {{issue}}
+```
+
+Confirm the `Notes` and/or `Design` fields are non-empty and substantive
+(or contain the `no-findings:` marker if the work was legitimately trivial).
+
+**Why this step matters:**
+The archivist is downstream of you. It collates YOUR notes across the rig's
+domain. If every polecat skips this, the rig has no accumulating memory —
+the next polecat starts from zero and re-learns what you already learned.
+Persisting 2 minutes of context here saves 20 minutes for the next polecat.
+
+**Exit criteria:** `bd show {{issue}}` shows either substantive Notes/Design
+OR the explicit `no-findings:` marker. Nothing in between."""
+
+[[steps]]
 id = "build-check"
 title = "Build and sanity check"
-needs = ["self-review"]
+needs = ["persist-findings"]
 description = """
 Verify your changes compile and pass basic sanity checks. The Refinery's
 bisecting merge queue runs the full test suite — your job is to catch
@@ -394,6 +655,12 @@ gh pr create --title "<type>: <description> ({{issue}})" \
 ## Summary
 <1-3 bullet points describing what changed and why>
 
+## Decisions made autonomously
+<Any decision you made at a fork instead of blocking on an interactive prompt —
+omit this heading only if there were genuinely none. Each: the decision, why,
+and what the reviewer should confirm.>
+- <decision> — <why; reviewer please confirm>
+
 ## Test plan
 - [ ] CI passes
 - [ ] AI review comments addressed
@@ -496,6 +763,25 @@ Submit your work and clean up. Your behavior depends on your base branch.
 git log origin/{{base_branch}}..HEAD --oneline
 ```
 This MUST show at least 1 commit. If it shows nothing, do NOT run `gt done`.
+
+**Pre-flight: Findings self-check (required):**
+```bash
+bd show {{issue}}
+```
+
+Confirm that `Notes` OR `Design` is non-empty. Acceptable values:
+- Substantive findings (API shapes, gotchas, rationale, file:line attribution)
+- The explicit `no-findings: <reason>` marker for legitimately trivial work
+
+If BOTH are empty, stop. Go back to the `persist-findings` step — `gt exit`
+will emit a 183-byte stub domain note that gives the archivist nothing to
+collate. This self-check exists because past polecats reached exit with rich
+surface-area discoveries in their heads and zero bytes on disk.
+
+This is a self-check (you read the output and confirm), not a terminal gate.
+But if you exit without findings on a non-trivial task, the next polecat
+dispatched to this area of the code has to rediscover everything you already
+learned. Don't do that to them.
 
 ## Mode A: PR against main (base_branch = main)
 

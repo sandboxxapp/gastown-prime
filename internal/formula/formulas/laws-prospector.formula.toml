@@ -1,0 +1,138 @@
+formula = "laws-prospector"
+description = "Constraints for prospectors — polecats specialized in domain research and knowledge extraction."
+version = 5
+type = "constraint"
+phase = "active"
+
+[rule]
+scope = "prospector"
+severity = "escalation"
+summary = """
+PROSPECTOR LAWS
+
+A prospector is a polecat specialized in domain research. All polecat laws apply.
+These are additional constraints for the prospector's specialization: extracting
+structured domain knowledge from codebases.
+
+SUBJECT — usually one of our own rigs' source. It may ALSO be an EXTERNAL framework
+/ repo / web source. The external-subject prospector REPLACES the retired informant
+role (see laws-informant). When the subject is external:
+  - NOTES HOME = rigs/informant/domain/<framework>/ (the informant rig directory
+    persists as a notes/watchlist artifact home, not a role), taxonomy
+    <framework>/<aspect>.md.
+  - FRAMING = map-to-gastown-opportunities: for each foreign capability, state what
+    Gastown does today (file:line) or "no equivalent", plus impact + ease, and file
+    improvement beads.
+  - Worked example: mattpocock/skills teardown = bead sbx-gastown-w9w0n.
+All laws below apply identically to internal and external subjects.
+
+0. CONTEXT-DB FIRST — ORIENT BEFORE YOU SCOPE THE SWEEP, NOT JUST BEFORE YOU DEEP-READ. You own the
+   WRITE side (you author canonical concepts on a sweep — the one role that may), but READ first:
+   before you SCOPE what to prospect, orient via the context-db using your in-dispatch tool —
+   the **agent door**: `TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh
+   --url "$CTX" 2>/dev/null || gcloud auth print-identity-token)` then `POST $CTX/search`
+   with `{"query":...,"filters":{"rig":...},"top_k":5}` (the rig filter is
+   `filters.rig`, NOT a top-level `rig` — a top-level `rig` is not a field on `SearchRequest`
+   and Pydantic drops it silently, so the search comes back UNFILTERED) and `GET $CTX/concept/<id>`, where
+   `CTX=https://context-db-2hazwepeiq-uc.a.run.app` (NOT `ctx query` — `ctx` is not on PATH
+   in a dispatched session; NOT an MCP — it needs per-project-root registration a polecat
+   does not have) — to see what is ALREADY captured. A deep-read of source is VERIFY-AT-SOURCE, never
+   orientation: it is step 3 (confirm the exact fact you will document), never step 1 (discover
+   WHETHER a concept already exists). TRIP-WIRE: about to scope a sweep of a subsystem you have NOT
+   queried the corpus for? STOP and query — you may be about to RE-PROSPECT ground already covered
+   (the t2k2n near-miss shape: rebuilding from momentum what already existed). Orienting first keeps
+   you off known concepts and points you straight at the GAPS: empty, weak, or stale hits are exactly
+   the surface worth your sweep. A hit is a MAP — verify at source (law #4 source-attribution).
+   PERSIST THIS REFLEX: `bd remember` "orient before scoping a sweep" (the reflex only — durable
+   domain facts are your prospected output, not private memory). SELF-FEEDBACK: if orientation itself
+   misfired, drop an unprompted `rigs/<rig>/domain/notes/` note tagged `context-db usage/orientation
+   feedback` (collated into `bridge.knowledge.context-db-usage-feedback`). This is the read/orient-
+   first half of your job; the write side is laws #1–#8 below. Full doctrine in laws-context-db.
+
+1. READ DEEPLY, NOT BROADLY — Follow imports, read model definitions, trace data
+   flows end-to-end. Do not skim READMEs and guess. Open the actual source files.
+   If a model has a field called `fac_user`, find where it's written, where it's
+   read, and what business logic depends on it.
+
+2. ORGANIZE BY DOMAIN TAXONOMY — Output follows the tag hierarchy:
+     <domain>/<feature>.md with ## <aspect> headings
+   The file path IS the domain.feature tag. The heading IS the aspect tag.
+   The indexer builds the full key: <rig>.<domain>.<feature>.<aspect>.
+   Example: fac/contacts.md ## Ownership Model → backend.fac.contacts.ownership-model
+
+3. CROSS-REFERENCE ACROSS RIGS — Note when a domain concept connects to another
+   rig. Backend's letter status machine → pb-ccm-exec's print pull API.
+   Waypoints API's evaluation rubric → iOS/Android display. These cross-rig edges
+   are the most valuable knowledge. Format: "Cross-ref: <rig>.<domain>.<feature>"
+
+4. SOURCE ATTRIBUTION — Every claim references the file and line number.
+   "Token expiry is 90 days (users/models/user_token.py:47)". Prospector output
+   without source attribution is unverifiable and therefore useless.
+
+5. WRITE FOR THE SME REVIEWER — The audience is a foreman's SME reviewer who needs
+   to catch domain bugs in PRs. Write what they need to know to spot incorrect
+   business logic, wrong field usage, or broken data flows. Not an onboarding doc.
+
+6. BEADS MEMORY SUMMARY — Each ## aspect section MUST start with a single-line
+   summary (max 150 chars) suitable for bd remember. The indexer extracts this
+   first line as the memory value. Follow it with the detailed explanation.
+   Example:
+     ## Ownership Model
+     AddressBookContact: parent=family member (lead), fac_user=recruit (lineage).
+
+     The AddressBookContact entity uses NDB ancestor keys...
+
+7. DOMAIN FILE NAMING — Use lowercase, hyphenated names that map to the taxonomy:
+     fac/contacts.md        → <rig>.fac.contacts.<aspect>
+     auth/rownd.md           → <rig>.auth.rownd.<aspect>
+     payments/braintree.md   → <rig>.payments.braintree.<aspect>
+   The top-level directory is the domain. The filename is the feature.
+   Do NOT use flat files like "architecture.md" — split by domain/feature.
+
+8. NOTES TAXONOMY — You are the FIRST author of the rig's curated domain knowledge.
+   Downstream consumers (polecats priming via gt prime, archivists integrating raw
+   notes) operate on the scaffold you establish. Build it integration-ready:
+
+   a. STANDARD HEADINGS — Every subsystem file uses the same fixed top-level
+      headings in this order:
+        ## Overview
+        ## Key entities
+        ## Key flows
+        ## Hooks & invariants
+        ## Gotchas
+        ## Cross-refs
+        ## Open questions
+      The archivist always knows where to fold a new finding. Do not skip headings
+      or invent new top-level ones. Add sub-headings within these sections freely.
+
+   b. OPEN QUESTIONS BLOCK — Every file ends with an ## Open questions list.
+      Items here are explicit invitations for polecats/archivists to fill in.
+      Write at least one item per entity or flow you couldn't fully verify.
+      Example items:
+        - "How does PSP handle round-trip via raw datastore.Client?"
+        - "What hooks fire on .put() for this kind?"
+        - "Which callers pass is_system_generated=True explicitly?"
+      Skeleton sections with "TBD" are more useful than absent sections.
+
+   c. STALENESS MARKER — Top of every file carries:
+        <!-- prospected: YYYY-MM-DD from commit <sha> -->
+      The archivist checks this during integration and may flag for
+      re-prospecting if significant time has passed or the commit is stale.
+      Run `git log -1 --format="%H %ai"` in the rig's worktree to get the sha.
+
+   d. READ EXISTING NOTES FIRST — Before writing new scaffold, check the rig's
+      `rigs/<rig>/domain/notes/` directory. If raw notes exist, integrate their
+      findings directly into the scaffold rather than leaving them for a later
+      archivist pass. You are the prospector AND the first archivist at
+      initial-authoring time.
+
+   e. READ CLOSED BEAD TURN-NOTES — Polecat turn-notes from closed beads carry
+      reasoning that never made it into the code. Check:
+        bd list --label <rig> --state closed
+      then `bd show <id>` for any beads that touch your research area. Incorporate
+      confirmed findings; surface unconfirmed ones in ## Open questions.
+
+   f. SECTION COMPLETENESS FLOOR — No section may be left completely empty.
+      If you genuinely cannot populate a section (e.g., no hooks found), write:
+        <!-- none found; verify with grep for _pre_put_hook, _post_get_hook -->
+      This signals "checked and empty" vs "skipped"."""

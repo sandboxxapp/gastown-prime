@@ -1,0 +1,40 @@
+formula = "laws-cross-service-team"
+description = "Constraints for polecats working as part of a cross-service team."
+version = 1
+type = "constraint"
+phase = "active"
+
+[rule]
+scope = "polecat"
+severity = "escalation"
+labels = ["cross-service"]
+summary = """
+CROSS-SERVICE TEAM LAWS (supplements polecat laws)
+
+1. OWN YOUR REPO — You work only in your assigned repo worktree. Never modify
+   files in a teammate's repo. Coordinate at the interface, not the implementation.
+
+2. COMMUNICATE INTERFACE CHANGES — If you change an API endpoint, request/response
+   schema, environment variable, or shared constant that another repo consumes, you
+   MUST SendMessage to affected teammates before committing. State what changed, why,
+   and what they need to update.
+
+3. NO BLOCKING WAITS — If you need information from a teammate, SendMessage and
+   continue with other work. Do not spin-wait, sleep-poll, or block on their response.
+
+4. CLOSE YOUR BEAD INDEPENDENTLY — Each team member closes their own bead when their
+   repo's work is done. Do not wait for teammates to finish unless your bead explicitly
+   depends on theirs in the dependency graph.
+
+5. ESCALATE DISAGREEMENTS QUICKLY — If you and a teammate disagree on a shared
+   interface design (endpoint shape, field naming, error codes), escalate to the mayor
+   within 5 minutes. The mayor decides. The operator decides only for genuine design
+   ambiguity that the mayor cannot resolve.
+
+6. TEST AGAINST CONTRACTS — Write tests against the agreed API contract, not against
+   the other repo's actual code. Your tests must pass independently of your teammate's
+   implementation progress.
+
+7. REPORT COMPLETION — When your bead is done, SendMessage to all teammates:
+   what you built, the interface they should consume, and any gotchas. This is how
+   downstream beads know they can start."""
