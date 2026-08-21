@@ -135,10 +135,17 @@ func TestAgentIDRoundTripHyphenatedRigs(t *testing.T) {
 		"waypoints-admin-web",
 		"pb-ccm-exec",
 		"a-b-c-d-e",
-		"my-witness",
 		"news_api",
 		"news-api",
 		"bridge",
+		// The edge cases the validator deliberately ALLOWS. If any of these
+		// stops round-tripping, the validator is too permissive, not too strict.
+		"my-witness",  // trailing singleton role
+		"my-refinery", // trailing singleton role
+		"a-crew-b",    // named role in the middle
+		"a-polecat-b", // named role in the middle
+		"tools-dog",   // "dog" is only special as the first segment
+		"witness",     // bare singleton role
 	}
 	roles := []struct{ role, name string }{
 		{"witness", ""},
