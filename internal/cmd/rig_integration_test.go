@@ -986,25 +986,77 @@ func TestRigAddRejectsInvalidNames(t *testing.T) {
 	g := git.NewGit(townRoot)
 	mgr := rig.NewManager(townRoot, rigsConfig, g)
 
-	// Characters that break agent ID parsing (hyphens, dots, spaces)
-	// Note: underscores are allowed
-	invalidNames := []string{
-		"my-rig",       // hyphens break agent ID parsing
-		"my.rig",       // dots break parsing
-		"my rig",       // spaces are invalid
-		"my-multi-rig", // multiple hyphens
+	// Names that genuinely break agent ID parsing. Hyphens are NOT in this set —
+	// see TestRigAddAcceptsHyphenatedNames (sbx-gastown-oxta6).
+	invalidNames := []struct {
+		name    string
+		wantErr string
+	}{
+		{"my.rig", "invalid characters"}, // dots break parsing
+		{"my rig", "invalid characters"}, // spaces are invalid
+		{"-my-rig", "empty segment"},     // leading hyphen
+		{"my--rig", "empty segment"},     // empty middle segment
+		{"crew-tools", "ambiguous"},      // leading named role eats the rig name
+		{"tools-polecat", "ambiguous"},   // trailing named role eats the role slot
 	}
 
-	for _, name := range invalidNames {
-		t.Run(name, func(t *testing.T) {
+	for _, tt := range invalidNames {
+		t.Run(tt.name, func(t *testing.T) {
 			_, err := mgr.AddRig(rig.AddRigOptions{
-				Name:   name,
+				Name:   tt.name,
 				GitURL: gitURL,
 			})
 			if err == nil {
-				t.Errorf("AddRig(%q) should have failed", name)
-			} else if !strings.Contains(err.Error(), "invalid characters") {
-				t.Errorf("AddRig(%q) error = %v, want 'invalid characters'", name, err)
+				t.Errorf("AddRig(%q) should have failed", tt.name)
+			} else if !strings.Contains(err.Error(), tt.wantErr) {
+				t.Errorf("AddRig(%q) error = %v, want %q", tt.name, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestRigAddAcceptsHyphenatedNames verifies that AddRig no longer rejects
+// hyphenated rig names, so a rig can be named after its GitHub repo
+// (sbx-gastown-oxta6). This asserts only that NAME VALIDATION passes — the
+// call may still fail later for environmental reasons (no Dolt, clone
+// failures), which is why we assert on the absence of the validation errors
+// rather than on overall success.
+func TestRigAddAcceptsHyphenatedNames(t *testing.T) {
+	_ = mockBdCommand(t)
+	townRoot := setupTestTown(t)
+	gitURL := createTestGitRepo(t, "validname")
+
+	rigsPath := filepath.Join(townRoot, "mayor", "rigs.json")
+	rigsConfig, err := config.LoadRigsConfig(rigsPath)
+	if err != nil {
+		t.Fatalf("load rigs.json: %v", err)
+	}
+
+	g := git.NewGit(townRoot)
+	mgr := rig.NewManager(townRoot, rigsConfig, g)
+
+	hyphenated := []string{
+		"my-rig",
+		"my-multi-rig",
+		"sandboxx-backend",
+		"waypoints-admin-web",
+		"pb-ccm-exec",
+	}
+
+	for _, name := range hyphenated {
+		t.Run(name, func(t *testing.T) {
+			_, err := mgr.AddRig(rig.AddRigOptions{
+				Name:          name,
+				GitURL:        gitURL,
+				SkipDoltCheck: true,
+			})
+			if err == nil {
+				return // validation passed and the add succeeded outright
+			}
+			for _, banned := range []string{"invalid characters", "ambiguous", "empty segment", "is reserved"} {
+				if strings.Contains(err.Error(), banned) {
+					t.Errorf("AddRig(%q) rejected by name validation (%q), want hyphens accepted", name, err)
+				}
 			}
 		})
 	}

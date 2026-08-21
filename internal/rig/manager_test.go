@@ -264,10 +264,12 @@ func TestAddRig_RejectsInvalidNames(t *testing.T) {
 		name      string
 		wantError string
 	}{
-		{"op-baby", `rig name "op-baby" contains invalid characters`},
 		{"my.rig", `rig name "my.rig" contains invalid characters`},
 		{"my rig", `rig name "my rig" contains invalid characters`},
-		{"op-baby-test", `rig name "op-baby-test" contains invalid characters`},
+		{"my--rig", `rig name "my--rig" has an empty segment`},
+		{"-my-rig", `rig name "-my-rig" has an empty segment`},
+		{"crew-tools", `rig name "crew-tools" is ambiguous in agent IDs`},
+		{"tools-polecat", `rig name "tools-polecat" is ambiguous in agent IDs`},
 		{"hq", `rig name "hq" is reserved for town-level infrastructure`},
 		{"HQ", `rig name "HQ" is reserved for town-level infrastructure`},
 	}
@@ -284,6 +286,40 @@ func TestAddRig_RejectsInvalidNames(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantError) {
 				t.Errorf("AddRig(%q) error = %q, want error containing %q", tt.name, err.Error(), tt.wantError)
+			}
+		})
+	}
+}
+
+// TestAddRig_AcceptsHyphenatedNames is the counterpart to the reject table:
+// hyphenated names must get PAST name validation so a rig can be named after
+// its GitHub repo (sbx-gastown-oxta6). The clone will fail — the URL is fake —
+// so we assert only that the failure is not a name-validation failure.
+func TestAddRig_AcceptsHyphenatedNames(t *testing.T) {
+	nameValidationErrors := []string{
+		"contains invalid characters",
+		"is ambiguous in agent IDs",
+		"has an empty segment",
+		"is reserved for town-level infrastructure",
+	}
+
+	for _, rigName := range []string{"op-baby", "op-baby-test", "sandboxx-backend", "waypoints-admin-web", "pb-ccm-exec", "my-witness"} {
+		t.Run(rigName, func(t *testing.T) {
+			root, rigsConfig := setupTestTown(t)
+			manager := NewManager(root, rigsConfig, git.NewGit(root))
+
+			_, err := manager.AddRig(AddRigOptions{
+				Name:          rigName,
+				GitURL:        "git@github.com:test/test.git",
+				SkipDoltCheck: true,
+			})
+			if err == nil {
+				return
+			}
+			for _, banned := range nameValidationErrors {
+				if strings.Contains(err.Error(), banned) {
+					t.Errorf("AddRig(%q) failed name validation with %q, want hyphenated names accepted", rigName, err.Error())
+				}
 			}
 		})
 	}
@@ -1035,6 +1071,66 @@ func TestRegisterRig_RejectsReservedNames(t *testing.T) {
 			if err == nil {
 				t.Errorf("RegisterRig(%q) succeeded, want error containing %q", tt.name, tt.wantError)
 				return
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Errorf("RegisterRig(%q) error = %q, want error containing %q", tt.name, err.Error(), tt.wantError)
+			}
+		})
+	}
+}
+
+// TestRegisterRig_AcceptsHyphenatedNames verifies a rig directory named after
+// its GitHub repo can be ADOPTED, not just created (sbx-gastown-oxta6).
+// RegisterRig is the path that writes mayor/rigs.json, and DiscoverRigs reads
+// only rigs.json — so this is the gate that decides whether a hyphenated rig
+// can exist through a supported command instead of a hand-edit.
+func TestRegisterRig_AcceptsHyphenatedNames(t *testing.T) {
+	for _, rigName := range []string{"sandboxx-backend", "waypoints-admin-web", "pb-ccm-exec"} {
+		t.Run(rigName, func(t *testing.T) {
+			root, rigsConfig := setupTestTown(t)
+			manager := NewManager(root, rigsConfig, git.NewGit(root))
+
+			rigPath := filepath.Join(root, rigName)
+			if err := os.MkdirAll(rigPath, 0755); err != nil {
+				t.Fatalf("mkdir rig path: %v", err)
+			}
+
+			result, err := manager.RegisterRig(RegisterRigOptions{
+				Name:   rigName,
+				GitURL: "git@github.com:sandboxxapp/" + rigName + ".git",
+				Force:  true,
+			})
+			if err != nil {
+				t.Fatalf("RegisterRig(%q) = %v, want success", rigName, err)
+			}
+			if result.Name != rigName {
+				t.Errorf("result.Name = %q, want %q", result.Name, rigName)
+			}
+			if _, ok := rigsConfig.Rigs[rigName]; !ok {
+				t.Errorf("rig %q not present in rigs.json after RegisterRig", rigName)
+			}
+		})
+	}
+}
+
+// TestRegisterRig_RejectsAmbiguousNames keeps the narrow guard that replaced the
+// blanket hyphen ban: only names that genuinely break ParseAgentBeadID.
+func TestRegisterRig_RejectsAmbiguousNames(t *testing.T) {
+	tests := []struct{ name, wantError string }{
+		{"my.rig", "invalid characters"},
+		{"crew-tools", "ambiguous"},
+		{"tools-polecat", "ambiguous"},
+		{"my--rig", "empty segment"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, rigsConfig := setupTestTown(t)
+			manager := NewManager(root, rigsConfig, git.NewGit(root))
+
+			_, err := manager.RegisterRig(RegisterRigOptions{Name: tt.name})
+			if err == nil {
+				t.Fatalf("RegisterRig(%q) succeeded, want error containing %q", tt.name, tt.wantError)
 			}
 			if !strings.Contains(err.Error(), tt.wantError) {
 				t.Errorf("RegisterRig(%q) error = %q, want error containing %q", tt.name, err.Error(), tt.wantError)

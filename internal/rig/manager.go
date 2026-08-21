@@ -304,13 +304,11 @@ func (m *Manager) AddRig(opts AddRigOptions) (*Rig, error) {
 		return nil, ErrRigExists
 	}
 
-	// Validate rig name: reject characters that break agent ID parsing
-	// Agent IDs use format <prefix>-<rig>-<role>[-<name>] with hyphens as delimiters
-	if strings.ContainsAny(opts.Name, "-. /\\") {
-		sanitized := strings.NewReplacer("-", "_", ".", "_", " ", "_", "/", "_", "\\", "_").Replace(opts.Name)
-		sanitized = strings.TrimLeft(sanitized, "_")
-		sanitized = strings.ToLower(sanitized)
-		return nil, fmt.Errorf("rig name %q contains invalid characters; hyphens, dots, spaces, and path separators are not allowed. Try %q instead (underscores are allowed)", opts.Name, sanitized)
+	// Validate rig name against the agent-ID grammar. Hyphens ARE allowed, so a
+	// rig can be named after its GitHub repo; only the shapes that genuinely make
+	// <prefix>-<rig>-<role>[-<name>] ambiguous are rejected (sbx-gastown-oxta6).
+	if err := beads.ValidateRigNameForAgentIDs(opts.Name); err != nil {
+		return nil, err
 	}
 
 	// Reject reserved names that collide with town-level infrastructure.
@@ -1433,11 +1431,11 @@ func (m *Manager) RegisterRig(opts RegisterRigOptions) (*RegisterRigResult, erro
 		return nil, ErrRigExists
 	}
 
-	if strings.ContainsAny(opts.Name, "-. /\\") {
-		sanitized := strings.NewReplacer("-", "_", ".", "_", " ", "_", "/", "_", "\\", "_").Replace(opts.Name)
-		sanitized = strings.TrimLeft(sanitized, "_")
-		sanitized = strings.ToLower(sanitized)
-		return nil, fmt.Errorf("rig name %q contains invalid characters; hyphens, dots, spaces, and path separators are not allowed. Try %q instead (underscores are allowed)", opts.Name, sanitized)
+	// Same agent-ID name rules as AddRig — a rig adopted with `gt rig register`
+	// must be as safe as one created from scratch, and RegisterRig is the path
+	// that writes mayor/rigs.json, which is the only thing DiscoverRigs reads.
+	if err := beads.ValidateRigNameForAgentIDs(opts.Name); err != nil {
+		return nil, err
 	}
 
 	for _, reserved := range reservedRigNames {
