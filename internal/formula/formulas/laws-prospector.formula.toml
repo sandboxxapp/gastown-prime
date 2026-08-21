@@ -29,12 +29,13 @@ All laws below apply identically to internal and external subjects.
 0. CONTEXT-DB FIRST — ORIENT BEFORE YOU SCOPE THE SWEEP, NOT JUST BEFORE YOU DEEP-READ. You own the
    WRITE side (you author canonical concepts on a sweep — the one role that may), but READ first:
    before you SCOPE what to prospect, orient via the context-db using your in-dispatch tool —
-   the **agent door**: `TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh
-   --url "$CTX" 2>/dev/null || gcloud auth print-identity-token)` then `POST $CTX/search`
-   with `{"query":...,"filters":{"rig":...},"top_k":5}` (the rig filter is
+   the **agent door**: `-H "Authorization: Bearer $CONTEXT_DB_TOKEN"` then `POST
+   $CONTEXT_DB_URL/search` with `{"query":...,"filters":{"rig":...},"top_k":5}` (the rig filter is
    `filters.rig`, NOT a top-level `rig` — a top-level `rig` is not a field on `SearchRequest`
-   and Pydantic drops it silently, so the search comes back UNFILTERED) and `GET $CTX/concept/<id>`, where
-   `CTX=https://context-db-2hazwepeiq-uc.a.run.app` (NOT `ctx query` — `ctx` is not on PATH
+   and Pydantic drops it silently, so the search comes back UNFILTERED) and
+   `GET $CONTEXT_DB_URL/concept/<id>`. Both vars are INJECTED into your session by gt sling —
+   you never mint or refresh a credential; if either is unset the door is SHUT, go to
+   `rigs/<rig>/domain/` and say so (NOT `ctx query` — `ctx` is not on PATH
    in a dispatched session; NOT an MCP — it needs per-project-root registration a polecat
    does not have) — to see what is ALREADY captured. A deep-read of source is VERIFY-AT-SOURCE, never
    orientation: it is step 3 (confirm the exact fact you will document), never step 1 (discover

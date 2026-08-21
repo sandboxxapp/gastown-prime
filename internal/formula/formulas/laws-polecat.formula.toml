@@ -30,10 +30,12 @@ LAW TAIL — NOT INLINE (last block, below). Fetch the tail as part of starting 
    domain knowledge you need has almost certainly been captured already. Before you SCOPE YOUR
    IMPLEMENTATION — and before grepping source, reading a rig file, or querying a live system for
    any domain question — ORIENT through the AGENT DOOR (the token gate):
-     CTX=https://context-db-2hazwepeiq-uc.a.run.app
-     TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null || gcloud auth print-identity-token)
-     curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$CTX/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
-     curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
+     curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "Content-Type: application/json" -X POST "$CONTEXT_DB_URL/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+     curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" "$CONTEXT_DB_URL/concept/<concept_id>"
+   Both vars are INJECTED into your session by gt sling. You do not mint, refresh or hold a
+   credential of your own; the token is read-only and expires in ~1h with no refresh. If either
+   var is unset or the door 401s, THE DOOR IS SHUT — go to rigs/<rig>/domain/ and say so in your
+   findings. Do not try to mint one.
    The rig filter is filters.rig, NESTED — a top-level "rig" is not a field on SearchRequest,
    Pydantic drops it silently, and your search comes back UNFILTERED. Use top_k, NOT limit. Probe
    with POST /search, never GET /agents (it has 503'd while the read paths served). NOT `ctx

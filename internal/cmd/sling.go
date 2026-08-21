@@ -1059,6 +1059,15 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 
+	// Inject the read-only context-db credential (CONTEXT_DB_URL +
+	// CONTEXT_DB_TOKEN) so the polecat can execute law #0 — orient through the
+	// corpus — without ever holding a credential it could mint itself. Minted
+	// operator-side; fail-open, so a mint failure logs and dispatch continues.
+	// See internal/cmd/sling_contextdb.go.
+	if newPolecatInfo != nil {
+		newPolecatInfo.extraEnv = injectContextDBEnv(townRoot, newPolecatInfo.extraEnv)
+	}
+
 	// Start polecat session now that attached_molecule is set.
 	// This ensures polecat sees the molecule when gt prime runs on session start.
 	freshlySpawned := newPolecatInfo != nil

@@ -70,6 +70,15 @@ Role detection:
 
 This command is typically used in shell prompts or agent initialization.
 
+ROLE LAWS:
+  Output leads with the role's binding laws, read from the embedded
+  laws-<role>.formula.toml constraint formula. Roles with no such formula
+  (refinery, crew, boot, dog today) simply omit the block.
+
+  Suppress with --no-laws, or per-town by exporting GT_PRIME_LAWS=0. Use that
+  when another channel already delivers laws — e.g. a SessionStart hook — so
+  agents do not receive them twice.
+
 HOOK MODE (--hook):
   When called as an LLM runtime hook, use --hook to enable session ID handling,
   agent-ready signaling, and session persistence.
@@ -105,6 +114,8 @@ func init() {
 		"Output state as JSON (requires --state)")
 	primeCmd.Flags().BoolVar(&primeExplain, "explain", false,
 		"Show why each section was included")
+	primeCmd.Flags().BoolVar(&primeNoLaws, "no-laws", false,
+		"Skip the role laws block (for towns that deliver laws by another channel; see "+EnvPrimeLaws+")")
 	rootCmd.AddCommand(primeCmd)
 }
 
@@ -485,6 +496,11 @@ func repairSessionEnv(ctx RoleContext, roleInfo RoleInfo) {
 func outputRoleContext(ctx RoleContext) (string, error) {
 	explain(true, "Session metadata: always included for seance discovery")
 	outputSessionMetadata(ctx)
+
+	// Laws come before the role template deliberately. The template alone is
+	// ~20KB and hook-mode output past the first ~2KB is spilled to a file the
+	// agent may never open — laws buried behind it are laws not delivered.
+	outputRoleLaws(ctx, os.Stdout, primeExplain)
 
 	explain(true, fmt.Sprintf("Role context: detected role is %s", ctx.Role))
 	formula, err := outputPrimeContext(ctx)
