@@ -130,8 +130,9 @@ corpus, so DISK IS YOUR PRIMARY DOOR here, not the fallback:
 The same text is at concept bridge.laws.deacon for the roles that DO orient (mayor, polecats) —
 that is how the mayor reads your laws without your having to. ⚠️ Tell them what it costs: the
 corpus SPLITS a tail into aspect concepts, so /concept/bridge.laws.deacon returns a POINTER HUB.
-They need mint-ctx-token.sh + curl "$CTX/map/bridge.laws.deacon", then one /concept/<aspect> per
-aspect — N+1 calls to your single `cat`.
+They need curl -H "Authorization: Bearer $CONTEXT_DB_TOKEN" "$CONTEXT_DB_URL/map/bridge.laws.deacon"
+(polecats: both vars are injected by gt sling; the mayor uses its own operator identity), then one
+/concept/<aspect> per aspect — N+1 calls to your single `cat`.
 🛑 IF THE FILE IS MISSING, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO — escalate
 to the mayor via messaging.py, once, and journal it. (c) Stay safe: the core above is enough to
 keep you SAFE but NOT to make you COMPLETE. Never infer that an absent law permits something. In

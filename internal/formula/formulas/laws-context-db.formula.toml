@@ -48,16 +48,19 @@ retrieved chunk as authoritative current state. Each chunk carries its source pa
 provenance; use them to go verify.
 
 #2 QUERY LIVE — and use the door that matches WHO YOU ARE. The doors are NOT interchangeable.
-• DISPATCHED GASTOWN AGENTS (polecat, foreman, prospector, archivist, deacon) and the MAYOR use
-  the TOKEN GATE — a minted ID token against the hosted Cloud Run service. This works inside a
-  gastown session from ANY cwd: no bridge checkout, no `gcloud run services proxy`, no MCP.
-    CTX=https://context-db-2hazwepeiq-uc.a.run.app
-    TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null || gcloud auth print-identity-token)
-    curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -X POST "$CTX/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
-    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
-  Traps, all measured: the mint script defaults to --impersonate (the ctx-db-invoker SA), and the
-  bare fallback must NOT pass --audiences, because a USER ADC cannot mint an audience-scoped ID
-  token. filters.rig is NESTED — a top-level "rig" is silently dropped. Use top_k, NOT limit.
+• DISPATCHED GASTOWN AGENTS (polecat, foreman, prospector, archivist, deacon) use the TOKEN GATE
+  with an INJECTED credential. `gt sling` mints a read-only, audience-scoped ID token operator-side
+  and injects CONTEXT_DB_TOKEN + CONTEXT_DB_URL into the session. You never mint, refresh or hold a
+  credential of your own. This works from ANY cwd: no bridge checkout, no `gcloud run services
+  proxy`, no MCP, and it survives `--gcp` (which blanks ADC) precisely because it is not your ADC.
+    curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "Content-Type: application/json" -X POST "$CONTEXT_DB_URL/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+    curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" "$CONTEXT_DB_URL/concept/<concept_id>"
+  The token is ~1h and there is deliberately NO refresh: if either var is unset or the door 401s,
+  the door is SHUT — fall back to rigs/<rig>/domain/ and say so. Do not try to mint one.
+• THE MAYOR is not slung, so nothing injects into its session; it uses its OWN operator identity
+  (`gcloud auth print-identity-token`, no --audiences — a USER ADC cannot mint an audience-scoped
+  ID token) against the same URL. That is the one remaining self-mint door and it is the operator's.
+  Traps, all measured: filters.rig is NESTED — a top-level "rig" is silently dropped. Use top_k, NOT limit.
   /search and /notes are POST (so GET /search = 405); a concept fetch is GET /concept/{id} (so
   POST /concept = 404). Do NOT use `ctx query` — `ctx` is not on PATH in a dispatched session.
   🛑 PROBE THE PATH YOU DEPEND ON — POST /search, never GET /agents. /agents has returned 503

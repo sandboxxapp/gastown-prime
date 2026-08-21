@@ -123,6 +123,40 @@ type TownSettings struct {
 	// This allows fork-level customization of which Claude agents are spawned
 	// at startup. When nil, all services use their default behavior (enabled).
 	Services *ServicesConfig `json:"services,omitempty"`
+
+	// ContextDB configures one-way injection of a read-only context-db
+	// credential into dispatched polecat sessions (gt sling). When nil, the
+	// compiled-in defaults apply; see internal/cmd/sling_contextdb.go.
+	ContextDB *ContextDBConfig `json:"context_db,omitempty"`
+}
+
+// ContextDBConfig configures the read-only context-db credential that gt sling
+// mints operator-side and injects into a dispatched polecat's environment as
+// CONTEXT_DB_URL + CONTEXT_DB_TOKEN.
+//
+// Every field is optional; omitted fields fall back to the compiled-in defaults
+// in internal/cmd/sling_contextdb.go, and each is further overridable per
+// invocation by env (CONTEXT_DB_URL, GT_CONTEXT_DB_SA, GT_CONTEXT_DB_AUDIENCE,
+// GT_CONTEXT_DB_INJECT).
+type ContextDBConfig struct {
+	// URL is the context-db base URL. It doubles as the token audience unless
+	// Audience is set. Example: "https://context-db-xxxx-uc.a.run.app"
+	URL string `json:"url,omitempty"`
+
+	// ServiceAccount is the read-only service account the ID token is minted
+	// as. The calling (operator) identity must hold
+	// roles/iam.serviceAccountTokenCreator on it.
+	// Example: "polecat-ro@my-project.iam.gserviceaccount.com"
+	ServiceAccount string `json:"service_account,omitempty"`
+
+	// Audience overrides the ID token audience. Defaults to URL, which is what
+	// a Cloud Run front-end validates. Set only when a custom domain fronts the
+	// service and the two differ.
+	Audience string `json:"audience,omitempty"`
+
+	// Disabled turns injection off for this town. Equivalent to exporting
+	// GT_CONTEXT_DB_INJECT=0.
+	Disabled bool `json:"disabled,omitempty"`
 }
 
 // ServicesConfig controls which long-lived services gt up starts.

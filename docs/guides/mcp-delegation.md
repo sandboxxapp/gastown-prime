@@ -175,6 +175,79 @@ if a listed var is absent from the source.
 `gt` logs only the **profile name and var NAMES** — never the values. The token
 values exist only in the source file (gitignored) and the polecat's process env.
 
+## Read-only context-db credential — injected, no flag
+
+Unlike `--mcp` / `--gcp` / `--secrets`, this one is **not opt-in**. Every
+dispatch mints a read-only, audience-scoped Google ID token and injects
+`CONTEXT_DB_TOKEN` + `CONTEXT_DB_URL` into the polecat's session env.
+
+The reason it is unconditional: a polecat's **first law** is to orient through
+the context-db before scoping any build. The corpus is behind an authenticated
+Cloud Run front-end, so a polecat without a token cannot execute law #0 at all.
+A credential the agent needs in order to obey its laws is not a per-task option.
+
+### One-way by construction
+
+The token is minted **in the `gt sling` process**, which runs as the operator,
+and handed to the polecat. The polecat never authenticates, never refreshes, and
+holds nothing it could mint again.
+
+That is not just tidiness. The read-only service account grants
+`roles/iam.serviceAccountTokenCreator` to the operator alone, so a polecat that
+"mints its own" token is really inheriting the operator's ADC — an accident that
+works only because the session happens to be local. It also breaks under
+`--gcp`, which deliberately blanks `GOOGLE_APPLICATION_CREDENTIALS`. Injection
+fixes identity, inheritance and `--gcp` compatibility at once, and composes with
+`--gcp`/`--secrets` because it writes different keys onto the same `extraEnv`.
+
+### Fail-open
+
+A mint failure — no ADC, no `tokenCreator` on the SA, offline, a town with no
+corpus — **never aborts a dispatch**. It prints one line saying the token was not
+injected and why, and the polecat degrades to `rigs/<rig>/domain/`, which the
+laws name unconditionally. It is all-or-nothing: on failure *neither* var is set,
+because a URL with no token would only buy the polecat a 401.
+
+### Expiry — there is deliberately no refresh
+
+The token lives ~1h (IAM's fixed `generateIdToken` lifetime). There is no
+refresh machinery and none should be added: corpus access is orientation-only
+and already fails open, and a refresh loop would hand a polecat a *renewable*
+credential — precisely what one-way injection exists to prevent.
+
+### Configuration
+
+Nothing is required for the default town. Every value is overridable, and a
+town with a different corpus (or none) should set them rather than inherit the
+defaults:
+
+```json
+{
+  "context_db": {
+    "url": "https://context-db-xxxx-uc.a.run.app",
+    "service_account": "reader@my-project.iam.gserviceaccount.com",
+    "audience": "",
+    "disabled": false
+  }
+}
+```
+
+| Env var | Effect |
+|---------|--------|
+| `CONTEXT_DB_URL` | Base URL, and the token audience unless overridden. |
+| `GT_CONTEXT_DB_SA` | Service account to mint as. |
+| `GT_CONTEXT_DB_AUDIENCE` | Audience, when a custom domain fronts the service. |
+| `GT_CONTEXT_DB_INJECT=0` | Turn injection off for this town (same as `"disabled": true`). |
+
+Precedence is **env > `settings/config.json` > compiled default**.
+
+### Masking
+
+`gt` logs the token **length** and the minting service account — never the token.
+It is a bearer credential: it must not reach `daemon.log`, a bead, a formula
+render, `gt prime` output, or a PR body. `TestContextDBEnvNeverLogsToken` asserts
+this against stdout, whole-string and by fragment.
+
 ## Security boundary
 
 - Polecats never see the mayor's raw upstream credentials. The daemon holds
@@ -189,3 +262,7 @@ values exist only in the source file (gitignored) and the polecat's process env.
   token), NOT the operator's personal credentials — consistent with polecat-law
   #4 (no personal creds). The profile config stays gitignored; values are never
   committed and never logged (only the profile name + var names are echoed).
+- `CONTEXT_DB_TOKEN` is the same shape of promise, taken one step further: it is
+  minted operator-side and injected, so the polecat holds a read-only credential
+  it could not have obtained itself and cannot renew. See *Read-only context-db
+  credential* above.

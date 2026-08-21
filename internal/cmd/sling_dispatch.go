@@ -410,6 +410,15 @@ func executeSling(params SlingParams) (*SlingResult, error) {
 		}
 	}
 
+	// 10.6: Inject the read-only context-db credential so the polecat can run
+	// law #0 (orient through the corpus). Wired into BOTH dispatch paths on
+	// purpose — the --gcp mint lives only in runSling, and that asymmetry is a
+	// known, still-open gap (rigs/gastown-prime/domain/secrets-injection.md).
+	// Fail-open: never aborts the dispatch.
+	if spawnInfo != nil {
+		spawnInfo.extraEnv = injectContextDBEnv(townRoot, spawnInfo.extraEnv)
+	}
+
 	// 11. Start polecat session
 	pane, err := spawnInfo.StartSession()
 	if err != nil {
