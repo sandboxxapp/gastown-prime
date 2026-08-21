@@ -264,10 +264,12 @@ func TestAddRig_RejectsInvalidNames(t *testing.T) {
 		name      string
 		wantError string
 	}{
-		{"op-baby", `rig name "op-baby" contains invalid characters`},
 		{"my.rig", `rig name "my.rig" contains invalid characters`},
 		{"my rig", `rig name "my rig" contains invalid characters`},
-		{"op-baby-test", `rig name "op-baby-test" contains invalid characters`},
+		{"my--rig", `rig name "my--rig" has an empty segment`},
+		{"-my-rig", `rig name "-my-rig" has an empty segment`},
+		{"crew-tools", `rig name "crew-tools" is ambiguous in agent IDs`},
+		{"tools-polecat", `rig name "tools-polecat" is ambiguous in agent IDs`},
 		{"hq", `rig name "hq" is reserved for town-level infrastructure`},
 		{"HQ", `rig name "HQ" is reserved for town-level infrastructure`},
 	}
@@ -284,6 +286,40 @@ func TestAddRig_RejectsInvalidNames(t *testing.T) {
 			}
 			if !strings.Contains(err.Error(), tt.wantError) {
 				t.Errorf("AddRig(%q) error = %q, want error containing %q", tt.name, err.Error(), tt.wantError)
+			}
+		})
+	}
+}
+
+// TestAddRig_AcceptsHyphenatedNames is the counterpart to the reject table:
+// hyphenated names must get PAST name validation so a rig can be named after
+// its GitHub repo (sbx-gastown-oxta6). The clone will fail — the URL is fake —
+// so we assert only that the failure is not a name-validation failure.
+func TestAddRig_AcceptsHyphenatedNames(t *testing.T) {
+	nameValidationErrors := []string{
+		"contains invalid characters",
+		"is ambiguous in agent IDs",
+		"has an empty segment",
+		"is reserved for town-level infrastructure",
+	}
+
+	for _, rigName := range []string{"op-baby", "op-baby-test", "sandboxx-backend", "waypoints-admin-web", "pb-ccm-exec", "my-witness"} {
+		t.Run(rigName, func(t *testing.T) {
+			root, rigsConfig := setupTestTown(t)
+			manager := NewManager(root, rigsConfig, git.NewGit(root))
+
+			_, err := manager.AddRig(AddRigOptions{
+				Name:          rigName,
+				GitURL:        "git@github.com:test/test.git",
+				SkipDoltCheck: true,
+			})
+			if err == nil {
+				return
+			}
+			for _, banned := range nameValidationErrors {
+				if strings.Contains(err.Error(), banned) {
+					t.Errorf("AddRig(%q) failed name validation with %q, want hyphenated names accepted", rigName, err.Error())
+				}
 			}
 		})
 	}
