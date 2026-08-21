@@ -337,12 +337,20 @@ Understanding this hierarchy is essential for proper configuration.
 | **Mayor** | `~/gt/mayor/` | Town-level coordinator, isolated from rigs |
 | **Deacon** | `~/gt/deacon/` | Background supervisor daemon |
 | **Witness** | `~/gt/<rig>/witness/` | No git clone, monitors polecats only |
-| **Refinery** | `~/gt/<rig>/refinery/rig/` | Worktree on main branch |
-| **Crew** | `~/gt/<rig>/crew/<name>/rig/` | Persistent human workspace clone |
-| **Polecat** | `~/gt/<rig>/polecats/<name>/rig/` | Polecat worktree (ephemeral sandbox) |
+| **Refinery** | `~/gt/<rig>/refinery/rig/` | Worktree on the default branch, cut from `<rig>/.repo.git` |
+| **Crew** | `~/gt/<rig>/crew/<name>/` | Persistent human workspace clone |
+| **Polecat** | `~/gt/<rig>/polecats/<name>/<rigname>/` | Polecat worktree (ephemeral sandbox) |
 
 Note: The per-rig `<rig>/mayor/rig/` directory is NOT a working directory—it's
 a git clone that holds the canonical `.beads/` database for that rig.
+
+Note: the polecat worktree is nested one level deeper than the polecat's home
+directory, under a directory named after the **rig**, so the agent sees a
+recognisably-named repo root (`internal/polecat/manager.go:480`). The flat
+`polecats/<name>/` form is still *read* for backward compatibility, but only
+when that directory contains a `.git` entry; new polecats always get the nested
+form. Crew workspaces are **not** nested — the clone lives directly at
+`crew/<name>/` (`internal/cmd/crew_lifecycle.go:76`).
 
 ### Settings File Locations
 
