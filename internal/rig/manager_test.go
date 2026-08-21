@@ -1043,6 +1043,66 @@ func TestRegisterRig_RejectsReservedNames(t *testing.T) {
 	}
 }
 
+// TestRegisterRig_AcceptsHyphenatedNames verifies a rig directory named after
+// its GitHub repo can be ADOPTED, not just created (sbx-gastown-oxta6).
+// RegisterRig is the path that writes mayor/rigs.json, and DiscoverRigs reads
+// only rigs.json — so this is the gate that decides whether a hyphenated rig
+// can exist through a supported command instead of a hand-edit.
+func TestRegisterRig_AcceptsHyphenatedNames(t *testing.T) {
+	for _, rigName := range []string{"sandboxx-backend", "waypoints-admin-web", "pb-ccm-exec"} {
+		t.Run(rigName, func(t *testing.T) {
+			root, rigsConfig := setupTestTown(t)
+			manager := NewManager(root, rigsConfig, git.NewGit(root))
+
+			rigPath := filepath.Join(root, rigName)
+			if err := os.MkdirAll(rigPath, 0755); err != nil {
+				t.Fatalf("mkdir rig path: %v", err)
+			}
+
+			result, err := manager.RegisterRig(RegisterRigOptions{
+				Name:   rigName,
+				GitURL: "git@github.com:sandboxxapp/" + rigName + ".git",
+				Force:  true,
+			})
+			if err != nil {
+				t.Fatalf("RegisterRig(%q) = %v, want success", rigName, err)
+			}
+			if result.Name != rigName {
+				t.Errorf("result.Name = %q, want %q", result.Name, rigName)
+			}
+			if _, ok := rigsConfig.Rigs[rigName]; !ok {
+				t.Errorf("rig %q not present in rigs.json after RegisterRig", rigName)
+			}
+		})
+	}
+}
+
+// TestRegisterRig_RejectsAmbiguousNames keeps the narrow guard that replaced the
+// blanket hyphen ban: only names that genuinely break ParseAgentBeadID.
+func TestRegisterRig_RejectsAmbiguousNames(t *testing.T) {
+	tests := []struct{ name, wantError string }{
+		{"my.rig", "invalid characters"},
+		{"crew-tools", "ambiguous"},
+		{"tools-polecat", "ambiguous"},
+		{"my--rig", "empty segment"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, rigsConfig := setupTestTown(t)
+			manager := NewManager(root, rigsConfig, git.NewGit(root))
+
+			_, err := manager.RegisterRig(RegisterRigOptions{Name: tt.name})
+			if err == nil {
+				t.Fatalf("RegisterRig(%q) succeeded, want error containing %q", tt.name, tt.wantError)
+			}
+			if !strings.Contains(err.Error(), tt.wantError) {
+				t.Errorf("RegisterRig(%q) error = %q, want error containing %q", tt.name, err.Error(), tt.wantError)
+			}
+		})
+	}
+}
+
 func TestRegisterRig_DetectsAndPersistsCustomPushURL(t *testing.T) {
 	root, rigsConfig := setupTestTown(t)
 	manager := NewManager(root, rigsConfig, git.NewGit(root))
