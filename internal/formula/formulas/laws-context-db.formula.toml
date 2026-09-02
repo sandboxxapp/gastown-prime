@@ -53,10 +53,19 @@ provenance; use them to go verify.
   and injects CONTEXT_DB_TOKEN + CONTEXT_DB_URL into the session. You never mint, refresh or hold a
   credential of your own. This works from ANY cwd: no bridge checkout, no `gcloud run services
   proxy`, no MCP, and it survives `--gcp` (which blanks ADC) precisely because it is not your ADC.
-    curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "Content-Type: application/json" -X POST "$CONTEXT_DB_URL/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
-    curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" "$CONTEXT_DB_URL/concept/<concept_id>"
+    curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "X-Ctx-Agent: $GT_ROLE" -H "Content-Type: application/json" -X POST "$CONTEXT_DB_URL/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+    curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "X-Ctx-Agent: $GT_ROLE" "$CONTEXT_DB_URL/concept/<concept_id>"
   The token is ~1h and there is deliberately NO refresh: if either var is unset or the door 401s,
   the door is SHUT — fall back to rigs/<rig>/domain/ and say so. Do not try to mint one.
+  🛑 SIGN EVERY READ: -H "X-Ctx-Agent: $GT_ROLE" on EVERY door call, this one and the mayor's and
+  the tail fetch below. The serve side already logs one `context_db_usage` event per read with
+  endpoint, concept_id, query and hit_count (app.py:445-472) and reads the caller off THAT header;
+  the `ctx` CLI and the MCP send it, plain curl does not. Measured over the 24h to 2026-08-21: 300
+  events, 300 of them UNSTAMPED — so the 21 zero-hit misses (the corpus-gap signal) could not be
+  attributed to a rig, a role or a task, and orientation could not be told from noise. GT_ROLE is
+  already exported into every dispatched session; there is nothing to mint and nothing to install.
+  Only the ROLE NAME goes in that header. NEVER the token — a header a recipe echoes is a header
+  that ends up in a log.
 • THE MAYOR is not slung, so nothing injects into its session; it uses its OWN operator identity
   (`gcloud auth print-identity-token`, no --audiences — a USER ADC cannot mint an audience-scoped
   ID token) against the same URL. That is the one remaining self-mint door and it is the operator's.
@@ -95,7 +104,7 @@ POINTER HUB, because the corpus splits a tail into aspect concepts. One get_conc
 you headings and the belief you are briefed. Disk is the ONE-SHOT COMPLETE read ($GT_ROOT is set
 in every polecat env); the corpus door costs N+1 calls:
     cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/context-db.md         # complete, 1 read
-    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/map/bridge.laws.context-db"   # -> /concept/<aspect>
+    curl -s -H "Authorization: Bearer $TOKEN" -H "X-Ctx-Agent: $GT_ROLE" "$CTX/map/bridge.laws.context-db"
 🛑 IF YOU CAN REACH NEITHER, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO — in
 your first response and on your bead. (c) Stay safe: the core above is enough to keep you SAFE
 but NOT enough to make you COMPLETE, so never infer that an absent law permits something. When in

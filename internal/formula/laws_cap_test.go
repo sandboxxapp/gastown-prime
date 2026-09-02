@@ -20,16 +20,23 @@ const (
 // TestLawSummariesFitContextCap guards the embedded laws-* constraint formulas
 // against re-growing past the delivery cap.
 //
-// Why the EMBED needs this guard even though `gt prime` never renders a law:
-// both prime renderers return early on len(Steps) == 0 (prime_molecule.go), and
-// laws-* carry [rule] prose with zero [[steps]], so nothing renders them. The
-// embed still reaches agents, by a less obvious route — UpdateFormulas
-// (embed.go:277) writes embedded content onto the town's .beads/formulas/, and
-// laws-* are absent from .installed.json, so they take the "untracked - safe to
-// update" branch (embed.go:317-322) and get overwritten from the embed by
-// `gt doctor --fix` and `gt upgrade`. The bridge's SessionStart hooks then read
-// those files off disk. So an over-cap law here becomes an over-cap law
-// delivered there.
+// Why the EMBED needs this guard — it reaches agents by TWO routes, and the
+// first one is easy to miss:
+//
+//  1. READ. `gt prime` renders the role's laws from this embed and nowhere
+//     else: outputRoleLaws (internal/cmd/prime_laws.go:98) calls
+//     GetEmbeddedFormulaContent, which reads formulasFS and has no disk path.
+//     (Before PR #71 / 452eae4f there was no prime->laws code at all, which is
+//     where the since-obsolete "gt prime never renders a law" claim came from.
+//     The len(Steps) == 0 guards in prime_molecule.go are real but belong to
+//     the MOLECULE renderer, which laws never reach.)
+//  2. WRITE. UpdateFormulas (embed.go:277) writes embedded content onto the
+//     town's .beads/formulas/, and laws-* are absent from .installed.json, so
+//     they take the "untracked - safe to update" branch (embed.go:320-323) and
+//     get overwritten from the embed by `gt doctor --fix` and `gt upgrade`.
+//     The bridge's SessionStart hooks then read those files off disk.
+//
+// So an over-cap law here is delivered over-cap on both routes.
 //
 // Measured in characters, not bytes: the laws are em-dash-heavy UTF-8 and
 // len() on the byte slice overstates by ~1%.

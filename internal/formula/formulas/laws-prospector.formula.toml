@@ -29,7 +29,11 @@ All laws below apply identically to internal and external subjects.
 0. CONTEXT-DB FIRST — ORIENT BEFORE YOU SCOPE THE SWEEP, NOT JUST BEFORE YOU DEEP-READ. You own the
    WRITE side (you author canonical concepts on a sweep — the one role that may), but READ first:
    before you SCOPE what to prospect, orient via the context-db using your in-dispatch tool —
-   the **agent door**: `-H "Authorization: Bearer $CONTEXT_DB_TOKEN"` then `POST
+   the **agent door**: `-H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "X-Ctx-Agent: $GT_ROLE"`
+   (that second header on EVERY door call — it is the only thing that tells the serve-side usage
+   log WHICH agent read WHAT; 300 of 300 reads in the 24h to 2026-08-21 were unstamped, and an
+   unstamped read cannot tell a prospector's sweep from a polecat's lookup, sbx-gastown-t1m1h.
+   The role name only, never the token) then `POST
    $CONTEXT_DB_URL/search` with `{"query":...,"filters":{"rig":...},"top_k":5}` (the rig filter is
    `filters.rig`, NOT a top-level `rig` — a top-level `rig` is not a field on `SearchRequest`
    and Pydantic drops it silently, so the search comes back UNFILTERED) and
