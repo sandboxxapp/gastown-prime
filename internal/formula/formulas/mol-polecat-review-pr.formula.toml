@@ -1,9 +1,15 @@
 description = """
-Review an external PR and decide on merge/reject/revise.
+Review an external PR and return ONE verdict from a closed set.
 
 This molecule guides a polecat through reviewing a pull request from an external
 contributor. The polecat reviews code quality, tests, and alignment with project
-standards, then approves, requests changes, or files followup beads.
+standards, then returns exactly one of **APPROVE**, **REQUEST_CHANGES**, or
+**NEEDS_DISCUSSION** — with any non-blocking findings filed as followup beads
+whose ids are named in the verdict line.
+
+> 🛑 **There is no "APPROVE WITH CHANGES".** Either it needs changes now
+> (REQUEST_CHANGES), or it is approved with followups (APPROVE + bead ids).
+> Operator ruling 2026-09-11; the reasoning is in the make-decision step.
 
 ## Polecat Contract (Self-Cleaning Model)
 
@@ -48,10 +54,11 @@ beads created from it. Use `bd mol current` to find them - do NOT read this file
 |-----------|--------|
 | PR is stale/unmergeable | Note in review, request rebase |
 | Tests fail | Note in review, request fixes |
-| Major issues found | File followup beads, request changes |
+| One of the four REQUEST_CHANGES triggers fired | REQUEST_CHANGES, naming which trigger |
+| Findings that do not block the merge | APPROVE + followup beads, ids in the verdict line |
 | Unclear requirements | Mail Witness for guidance |"""
 formula = "mol-polecat-review-pr"
-version = 7
+version = 8
 
 [[steps]]
 id = "load-context"
@@ -184,13 +191,23 @@ gh pr diff {{pr_url}}
 - Is it consistent with existing patterns?
 - Are there any red flags?
 
-**4. Note issues found:**
-Keep a running list of:
-- Blocking issues (must fix before merge)
-- Suggestions (nice to have)
-- Questions (need clarification)
+**4. Note issues found, ALREADY SORTED into the two buckets:**
 
-**Exit criteria:** You have reviewed all changes and noted issues."""
+Classify as you go — the sort is the hard part of the verdict, and doing it at
+the end is how reviewers end up reaching for a middle state.
+
+- **BLOCKING** — must change before merge. Only if it is one of the four
+  triggers named in make-decision: a defect that reaches users; a false claim
+  baked into code or a permanent comment; a guard that would let a real
+  regression through undetected; a measurement the PR's argument rests on that
+  does not reproduce.
+- **FOLLOWUP** — real, worth fixing, does not block. Style, naming, an edge case
+  that does not reach users, a refactor you would prefer. These become beads and
+  an APPROVE, not a block.
+- **QUESTION** — you need clarification to classify it at all.
+
+**Exit criteria:** You have reviewed all changes, and every issue found is in
+exactly one of those three buckets."""
 
 [[steps]]
 id = "check-tests"
@@ -212,7 +229,11 @@ All required checks should pass. If not, note which are failing.
 - Are tests readable and maintainable?
 
 **3. If tests are missing:**
-Note this as a blocking issue - new code should have tests.
+New code should have tests — but "missing tests" is not automatically BLOCKING.
+It blocks only if it meets trigger 3 from make-decision: the PR ships a guard
+that would let a real regression through undetected (including a test that
+passes whether or not the bug is present). Untested code that is otherwise
+correct and low-risk is a FOLLOWUP bead on an APPROVE.
 
 **4. Check for test-only changes:**
 If PR is test-only, ensure tests are meaningful and not just
@@ -222,44 +243,110 @@ padding coverage numbers.
 
 [[steps]]
 id = "make-decision"
-title = "Decide: approve, request changes, or needs discussion"
+title = "Decide the verdict: APPROVE, REQUEST_CHANGES, or NEEDS_DISCUSSION"
 needs = ["check-tests"]
 description = """
-Make your review decision.
+Reach exactly ONE verdict, from a closed set of three (plus a security stop).
+
+> 🛑 **"APPROVE WITH CHANGES" IS NOT A VERDICT.** Neither GitHub nor this town
+> understands it. Operator ruling 2026-09-11: *"approve with changes is not an
+> acceptable review status — either it needs changes now, or it's approved with
+> followups."*
+>
+> A middle state forces the mayor to guess between merging and dispatching a
+> foreman, and that guess has been wrong. PR #2915 got a wasted foreman round for
+> findings its own reviewer described as "test-side, neither a wrong-merge, no
+> code change required, the merge warrant is intact" — an APPROVE all along. One
+> burned polecat and a delayed merge.
+>
+> If you catch yourself writing "approve with changes", "approve modulo", "LGTM
+> with nits", or "approve but" — you mean **APPROVE + followup beads**. Say that
+> instead, and name the bead ids.
 
 **Decision matrix:**
 
-| Situation | Decision |
-|-----------|----------|
+| Situation | Verdict |
+|-----------|---------|
 | Clean code, tests pass, good scope | APPROVE |
-| Minor issues, easily fixed | REQUEST_CHANGES (with specific feedback) |
-| Major issues, needs rework | REQUEST_CHANGES (with detailed explanation) |
-| Unclear requirements or scope | NEEDS_DISCUSSION (mail Witness) |
+| Minor issues, easily fixed, nothing that MUST change before merge | **APPROVE**, plus a followup bead for each, ids named in the verdict line |
+| Something that MUST change before merge (one of the four triggers below) | REQUEST_CHANGES |
+| You cannot tell whether it is right — requirements or scope unclear | NEEDS_DISCUSSION (mail Witness) |
 | Security concern | BLOCK (mail Witness immediately) |
 
-**1. If APPROVE:**
-The PR is ready to merge. Note any minor suggestions as comments
-but don't block on them.
+## REQUEST_CHANGES is reserved. These four triggers are the whole list.
 
-**2. If REQUEST_CHANGES:**
-Be specific about what needs to change. Provide examples if helpful.
-The contributor should be able to act on your feedback.
+Block the merge ONLY when the PR as it stands contains one of:
 
-**3. If NEEDS_DISCUSSION:**
+1. **A defect that reaches users.** Wrong behavior, data loss, a crash, a
+   regression that ships.
+2. **A FALSE CLAIM baked into code or a permanent comment.** A comment, doc,
+   error string, or test name asserting something the code does not do. It
+   outlives the PR and misleads every later reader.
+3. **A guard that would let a real regression through undetected.** A test that
+   passes whether or not the bug is present, an assertion on the wrong thing, a
+   check that cannot fail.
+4. **A measurement the PR's argument rests on that does not reproduce.** The PR
+   justifies itself with a number, a benchmark, or a count, and you could not
+   get it.
+
+Everything else is a **followup bead on an APPROVE**, not a block: style,
+naming, a missing edge case that does not reach users, a test you would have
+written differently, a refactor you would prefer, a doc you would like expanded.
+
+**Why this matrix changed (sbx-gastown-84iet2).** The old matrix mapped "minor
+issues, easily fixed" to REQUEST_CHANGES — so a reviewer who found a nit was
+instructed to block a mergeable PR. Faced with a PR that was clearly mergeable
+but not spotless, reviewers split the difference and invented a third verdict.
+The middle state was a rational response to a matrix with no
+"approve with followups" row. This is that row.
+
+## 1. If APPROVE with no followups
+
+The PR is ready to merge. Proceed to the next step.
+
+## 2. If APPROVE WITH FOLLOWUPS — file the beads NOW
+
+The merge warrant is intact AND you found things worth fixing later. File a bead
+for each one **in this step**, before you post anything: the verdict line must
+name the ids, and a followup that exists only as prose in a PR comment is a
+followup nobody will ever do.
+
+```bash
+bd create --type=task --priority=2 --title="Followup from review of {{pr_url}}: <description>" --description="Non-blocking finding from the review of {{pr_url}} (tracking {{issue}}). <file:line> — what it is and why it matters."
+```
+
+Collect every id. Before you move on, re-check each finding against the four
+triggers above: if one of them fired, it is not a followup and your verdict is
+REQUEST_CHANGES.
+
+## 3. If REQUEST_CHANGES
+
+Name **which of the four triggers fired** — say the number — and be specific
+about what must change. The contributor should be able to act on your feedback
+without asking you a question first.
+
+## 4. If NEEDS_DISCUSSION
+
+This is for "I cannot tell whether this is correct", not for "I would have done
+it differently". The latter is an APPROVE with a followup.
+
 ```bash
 gt mail send {{rig}}/witness -s "PR review needs discussion" -m "PR: {{pr_url}}
 Issue: {{issue}}
 Question: <what needs clarification>"
 ```
 
-**4. If BLOCK (security):**
+## 5. If BLOCK (security)
+
 ```bash
 gt mail send {{rig}}/witness -s "SECURITY: PR blocked" -m "PR: {{pr_url}}
 Issue: {{issue}}
 Concern: <security issue found>"
 ```
 
-**Exit criteria:** You've made a clear decision with rationale."""
+**Exit criteria:** ONE verdict from {APPROVE, REQUEST_CHANGES, NEEDS_DISCUSSION}
+(or a security BLOCK), with a rationale — and if it is APPROVE with followups,
+every followup bead is FILED and you are holding its id."""
 
 [[steps]]
 id = "submit-review"
@@ -275,39 +362,64 @@ not a one-line approval stamp, and not only a note buried on the tracking bead.
 
 ## 1. Assemble the review comment body
 
-Compose the full review content as markdown. It MUST include, at minimum:
+### The FIRST LINE is the verdict. It is a contract, not a header.
 
-- **Verdict:** `APPROVE` / `REQUEST_CHANGES` / `NEEDS_DISCUSSION` (from make-decision)
-- **Rationale:** why you reached that verdict
+The mayor decides merge-or-foreman off the top of your comment. Anything that
+makes that line ambiguous costs a wasted dispatch. So line 1 — the very first
+line of the comment body, before any prose — is exactly this shape:
+
+```
+🤖 Gastown review — <VERDICT> (tracking {{issue}}) — followups: <ids, comma-separated, or `none`>
+```
+
+- `<VERDICT>` is one of `APPROVE`, `REQUEST_CHANGES`, `NEEDS_DISCUSSION`. Nothing
+  else. **Never `APPROVE WITH CHANGES`** — see the make-decision step; if that is
+  what you mean, the verdict is `APPROVE` and the ids go in `followups:`.
+- `followups:` names the bead ids you filed in make-decision, or the literal
+  `none`. Prose ("a few nits", "minor suggestions below") is NOT an id and does
+  not count — an unfiled followup is a followup nobody does.
+- On `REQUEST_CHANGES`, `followups:` is normally `none`: the things that must
+  change are in the PR, not in a bead.
+
+Worked examples:
+
+```
+🤖 Gastown review — APPROVE (tracking {{issue}}) — followups: none
+🤖 Gastown review — APPROVE (tracking {{issue}}) — followups: sbx-gastown-a1b2c, sbx-gastown-d3e4f
+🤖 Gastown review — REQUEST_CHANGES (tracking {{issue}}) — followups: none
+```
+
+### The rest of the body
+
+Compose the full review content as markdown. Below that first line it MUST
+include, at minimum:
+
+- **Verdict:** repeated as its own section (the same token as line 1)
+- **Rationale:** why you reached that verdict — and on REQUEST_CHANGES, WHICH of
+  the four triggers from make-decision fired
 - **Per-finding detail:** each issue found, with file:line attribution and whether
-  it is blocking, a suggestion, or a question
+  it is blocking, a followup (with its bead id), or a question
 - **Operator-decision items:** ANYTHING a maintainer must sign off on before merge
   (tradeoffs, scope calls, risk acceptance). Call these out explicitly under a
   clearly-labeled section — this is the part a human must act on.
 - **Test assessment:** CI status + whether coverage is adequate
-- **Follow-up beads:** IDs of any beads you'll file (or filed) in the next step
-
-**Header the comment** so it reads as a relayed Gastown review:
-
-```
-🤖 Gastown review — <VERDICT> (tracking {{issue}})
-```
+- **Follow-up beads:** the ids from line 1, each with its title
 
 Write the body to a file to avoid shell-quoting hazards with multi-line content:
 
 ```bash
 cat > /tmp/gastown-review-{{issue}}.md <<'EOF'
-🤖 Gastown review — REQUEST_CHANGES (tracking {{issue}})
+🤖 Gastown review — REQUEST_CHANGES (tracking {{issue}}) — followups: none
 
 ## Verdict
 REQUEST_CHANGES
 
 ## Rationale
-<why>
+Trigger 3 fired: <why the guard cannot fail>.
 
 ## Findings
 - [BLOCKING] path/to/file.go:42 — <detail>
-- [SUGGESTION] ...
+- [FOLLOWUP sbx-gastown-a1b2c] path/to/other.go:17 — <detail>
 - [QUESTION] ...
 
 ## Operator decisions required
@@ -317,9 +429,18 @@ REQUEST_CHANGES
 <CI status + coverage assessment>
 
 ## Follow-ups
-- <bead-id>: <title>
+- <bead-id>: <title>   (or: none)
 EOF
 ```
+
+**Verify line 1 before you post it:**
+
+```bash
+head -1 /tmp/gastown-review-{{issue}}.md
+```
+
+It must carry one of the three verdict tokens and a `followups:` field. If it
+does not, fix the file — do not post and explain in prose.
 
 ## 2. Determine identity (KbotSB preferred, operator fallback)
 
@@ -381,18 +502,26 @@ Independently of the PR post, always record the verdict on {{issue}} so it survi
 even if the PR post fails:
 
 ```bash
-bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Identity: <kbotsb-bot|operator-fallback>."
+bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Followups: <bead ids, or none>. Identity: <kbotsb-bot|operator-fallback>."
 ```
 
 **Exit criteria:** The full review CONTENT is a comment on the PR (verified with
-`gh pr view {{pr_url}} --comments`), and the verdict is recorded on {{issue}}."""
+`gh pr view {{pr_url}} --comments`), its FIRST LINE carries the verdict token and
+a `followups:` field, and the same verdict is recorded on {{issue}}."""
 
 [[steps]]
 id = "file-followups"
-title = "File beads for any followup work"
+title = "File beads for any followup work not already filed"
 needs = ["submit-review"]
 description = """
-Create beads for any followup work discovered during review.
+Capture any followup work that is still uncaptured.
+
+> ⚠️ **Do NOT re-file what you already filed.** The followups that back an
+> APPROVE verdict were filed in **make-decision** — they had to exist before the
+> verdict line could name their ids. Those are done. This step exists for what
+> you noticed but did not put in the verdict line: out-of-scope discoveries and
+> unrequested improvements. If you filed everything in make-decision, this step
+> is just the record-keeping in part 3.
 
 **1. For issues found that are outside PR scope:**
 ```bash
@@ -412,8 +541,8 @@ bd create --type=task --title="Improvement: <description>" \
 
 **3. Update the tracking issue:**
 ```bash
-bd update {{issue}} --notes "Review complete. Decision: <APPROVE|REQUEST_CHANGES|etc>
-Followups filed: <list of bead IDs if any>"
+bd update {{issue}} --notes "Review complete. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>
+Followups filed: <every bead ID, from make-decision AND this step — or none>"
 ```
 
 **4. Sync beads:**
@@ -462,7 +591,7 @@ bd show {{issue}} --notes
 ```
 READ the output. If your findings are not in there, persist them now:
 ```bash
-bd update {{issue}} --notes "Review complete. Decision: <APPROVE|REQUEST_CHANGES|...>. <what you found and why it mattered>"
+bd update {{issue}} --notes "Review complete. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Followups: <bead ids, or none>. <what you found and why it mattered>"
 ```
 
 **2. Nothing unpushed.** `gt exit` pushes, but check first — the reaper deletes
