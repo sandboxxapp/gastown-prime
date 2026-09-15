@@ -11,6 +11,18 @@ phase = "active"
 # preview reaching the session -- it does not truncate, it DISAPPEARS silently
 # (sbx-gastown-dgi47: this file was 14,584 chars and the law tail never arrived).
 # Budget enforced by scripts/check-laws-cap.sh.
+#
+# ⭐ WHY EVERY curl RECIPE BELOW CARRIES -H "X-Ctx-Agent: $GT_ROLE" (sbx-gastown-t1m1h).
+# context-db's serve side already logs a structured `context_db_usage` event per read
+# (context-db/api/app.py:445-472, PR #139) with endpoint, concept_id, query and hit_count,
+# and it reads the agent identity off that header -- the `ctx` CLI and the MCP send it,
+# plain curl does not. MEASURED over 24h to 2026-08-21: 300 events, 300 of them unstamped,
+# so "which polecat read which doc" and "whose orientation missed" were unanswerable while
+# the 21 zero-hit MISSES were being logged perfectly. GT_ROLE is already exported into every
+# dispatched session (measured: GT_ROLE=bridge/polecats/celandine), so this costs one header
+# and no gt change. NEVER put $CONTEXT_DB_TOKEN in a header a recipe echoes -- only the role.
+# The header value is the ONLY thing that changed; if GT_ROLE is unset the read is anonymous,
+# exactly as it is today, so an un-dispatched shell is no worse off.
 # ADD NEW LAW TEXT TO THE TAIL (rigs/bridge/domain/laws/polecat.md -> concept
 # bridge.laws.polecat), NOT here. Inline space is reserved for laws that must fire
 # before orientation, and for laws whose violation is IRREVERSIBLE -- those can never
@@ -30,8 +42,8 @@ LAW TAIL — NOT INLINE (last block, below). Fetch the tail as part of starting 
    domain knowledge you need has almost certainly been captured already. Before you SCOPE YOUR
    IMPLEMENTATION — and before grepping source, reading a rig file, or querying a live system for
    any domain question — ORIENT through the AGENT DOOR (the token gate):
-     curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "Content-Type: application/json" -X POST "$CONTEXT_DB_URL/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
-     curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" "$CONTEXT_DB_URL/concept/<concept_id>"
+     curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "X-Ctx-Agent: $GT_ROLE" -H "Content-Type: application/json" -X POST "$CONTEXT_DB_URL/search" -d '{"query":"...","filters":{"rig":"'"$GT_RIG"'"},"top_k":5}'
+     curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "X-Ctx-Agent: $GT_ROLE" "$CONTEXT_DB_URL/concept/<concept_id>"
    Both vars are INJECTED into your session by gt sling. You do not mint, refresh or hold a
    credential of your own; the token is read-only and expires in ~1h with no refresh. If either
    var is unset or the door 401s, THE DOOR IS SHUT — go to rigs/<rig>/domain/ and say so in your
@@ -125,7 +137,7 @@ detail, and the law #13 deacon backstop.
 aspect concepts, so one fetch returns headings. DISK IS THE ONE-SHOT COMPLETE READ ($GT_ROOT is
 set in every polecat env); the corpus door costs N+1 calls:
     cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/polecat.md        # complete, 1 read
-    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/map/bridge.laws.polecat"  # -> /concept/<aspect>
+    curl -s -H "Authorization: Bearer $TOKEN" -H "X-Ctx-Agent: $GT_ROLE" "$CTX/map/bridge.laws.polecat"
 🛑 IF YOU CAN REACH NEITHER, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO — in
 your first response and on your bead. (c) Stay safe: the core above is enough to keep you SAFE but
 NOT enough to make you COMPLETE. Never infer that an absent law permits something. Nothing in the

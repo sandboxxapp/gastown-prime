@@ -183,7 +183,10 @@ into aspects. DISK IS THE ONE-SHOT COMPLETE READ; the corpus door costs N+1 call
     cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/mayor.md   # complete, 1 call
     get_map("bridge.laws.mayor") -> aspect ids -> get_concept(each)    # corpus, N+1 calls
     CTX=https://context-db-2hazwepeiq-uc.a.run.app; TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null || gcloud auth print-identity-token)
-    curl -s -H "Authorization: Bearer $TOKEN" "$CTX/map/bridge.laws.mayor"  # then /concept/<aspect>
+    curl -s -H "Authorization: Bearer $TOKEN" -H "X-Ctx-Agent: ${GT_ROLE:-mayor}" "$CTX/map/bridge.laws.mayor"
+    X-Ctx-Agent on EVERY corpus read — it is what attributes the read in the usage log
+    (app.py:445-472); 300/300 were unstamped in the 24h to 2026-08-21. Role name only, never the
+    token. You are not slung, so GT_ROLE may be unset: hence the default.
 🛑 IF YOU CAN REACH NONE OF THEM, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO —
 restoring the corpus is already your first action under #0; same incident. (c) Stay safe: this
 core keeps you SAFE, not COMPLETE. Never infer that an absent law permits something, and do not
