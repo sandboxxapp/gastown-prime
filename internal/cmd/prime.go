@@ -788,7 +788,20 @@ func findAgentWorkOnce(ctx RoleContext, agentID string) (*beads.Issue, error) {
 	if len(hookedBeads) == 0 {
 		return nil, nil
 	}
-	return hookedBeads[0], nil
+
+	// More than one bead hooked to this agent means the slot name was recycled
+	// while a previous occupant's bead was still hooked. Taking [0] here is what
+	// silently ran the wrong work: bd orders by priority ASC, so a stale P0 beat
+	// a freshly-slung P1 every time (sbx-gastown-qrfaa6). Arbitrate on the
+	// dispatch stamp and say out loud which beads lost — a pick a human can see
+	// is worth more than a pick that is merely right.
+	//
+	// SelectHookedBead is a stable sort: with no parseable attached_at anywhere
+	// it returns hookedBeads[0] unchanged, so the in_progress and town-level
+	// fallbacks above keep their existing behaviour.
+	winner, losers := beads.SelectHookedBead(hookedBeads)
+	warnHookAmbiguity(agentID, winner, losers)
+	return winner, nil
 }
 
 // rigBeadsRoot returns the directory to use for beads queries.

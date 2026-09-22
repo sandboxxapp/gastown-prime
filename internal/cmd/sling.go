@@ -1014,6 +1014,15 @@ func runSling(cmd *cobra.Command, args []string) (retErr error) {
 		}
 	}
 
+	// The slot may be a recycled name that still carries a previous occupant's
+	// hooked bead — the namepool's liveness gate never consults bead state, so
+	// a name freed while a bead is still hooked hands that armed hook to the
+	// next occupant (sbx-gastown-qrfaa6). Detect and announce; never mutate.
+	// Runs after the fields are stored so the freshly-slung bead carries its
+	// attached_at stamp, and before the session starts so the operator sees the
+	// warning next to the dispatch it belongs to.
+	warnForeignHook(hookDir, targetAgent, beadID)
+
 	// Start delayed dog session now that hook is set
 	// This ensures dog sees the hook when gt prime runs on session start
 	if delayedDogInfo != nil {
