@@ -29,8 +29,8 @@ gt exit
 **Polecats do NOT:**
 - Push directly to main (`git push origin main` — WRONG)
 - Merge their own PRs (operator reviews and merges)
-- Run `bd update <id> --notes "..." && gt exit` (not used in our model)
-- Close the bead (archivist closes after knowledge extraction)
+- Run `gt done` (not used in our model — the exit verb is `gt exit`)
+- `bd close` their hook bead (`gt exit` closes it — not even for no-changes)
 - Sit idle (daemon reaper will kill your session)
 
 Do NOT:
@@ -45,8 +45,8 @@ gt exit
 ```
 
 **What happens after you exit (not your concern):**
-- Daemon reaper detects your exit, triggers an archivist
-- Archivist extracts domain knowledge from your findings, closes the bead
+- The reaper detects your exit, triggers an archivist
+- The archivist folds your findings into the rig domain docs (`gt exit` already closed the bead)
 - Foreman handles PR review comments if humans respond
 - Operator reviews and merges the PR
 
@@ -84,15 +84,16 @@ bd update <issue> --design "Approach: <what you decided + why you chose it over 
 
 ### What's worth persisting (GOOD) vs what isn't (SKIP)
 
-**GOOD — non-obvious facts a future scout would otherwise re-derive:**
-- `Surface: Circle admin get_user returns {name, profile_fields: {...}} — profile_fields is nested, not flat (services/community.py:161)`
-- `Surface: Required-for-member field set: name, timezone, sm_branch_of_service, relationship_to_sm, training_location (COMMUNITY_FIELDS with required=True at rest/community.py:40)`
-- `Gotcha: Circle /community_members?email= does fuzzy matching on Apple Private Relay aliases — use /search for exact match (hit this in services/community.py during an earlier fix)`
-- `Approach: Chose to wrap the client rather than patch the SDK because SDK is vendored and auto-regenerated; wrapper lives at internal/circle/client.go.`
+**GOOD — non-obvious facts a future scout would otherwise re-derive.** The examples
+below come from different rigs; they illustrate the bar, not your rig's domain:
+- `Surface: third-party admin API get_user returns {name, profile_fields: {...}} — profile_fields is nested, not flat (services/community.py:161)`
+- `Surface: gt prime renders laws from the //go:embed copy only — editing .beads/formulas/ on disk reaches no primed session until gt is rebuilt (internal/cmd/prime_laws.go:98)`
+- `Gotcha: a plain "go build" of gt hard-exits at startup — use "make build" (internal/cmd/root.go persistentPreRun)`
+- `Approach: Chose to wrap the client rather than patch the SDK because the SDK is vendored and auto-regenerated; the wrapper owns the retry policy.`
 
 **SKIP — restates the bead, or visible in the diff:**
-- ~~`Task was to bump python-barcode`~~ (restates the requirements)
-- ~~`Updated giftcard_order.py to use new API`~~ (visible in `git diff`)
+- ~~`Task was to bump the dependency`~~ (restates the requirements)
+- ~~`Updated the handler to use the new API`~~ (visible in `git diff`)
 - ~~`Wrote tests and they pass`~~ (visible in CI)
 
 **Trivial tasks with genuinely nothing to persist** — use the explicit marker so
@@ -298,7 +299,7 @@ go here by default. But if you discover bugs/issues in OTHER projects:
 
 ### Progress
 - `bd update <id> --status=in_progress` — Claim work
-- `bd close <id>` — Mark issue complete
+- `bd close <id>` — Close a sub-issue you filed (never your hook bead — `gt exit` closes that)
 
 ### Discovered Work
 - `bd create --title="Found bug" --type=bug` — File new issue
@@ -311,7 +312,7 @@ When a command fails but your guess felt reasonable, file a bead with `desire-pa
 See `{{ .TownRoot }}/docs/AGENT-ERGONOMICS.md` for the philosophy.
 
 ### Completion
-- `bd update <id> --notes "..."` + `gt exit` — Persist findings and exit (archivist closes bead)
+- `bd update <id> --notes "..."` + `gt exit` — Persist findings and exit (`gt exit` closes the bead)
 
 ## Startup Protocol: Propulsion
 
@@ -383,9 +384,8 @@ bd update <id> --notes "..."          # Persist findings (survives session death
 bd update <id> --design "..."         # Persist structured analysis
 bd update <id> --add-label <label>    # Add a label
 
-# Closing
-bd close <id>                      # Close issue (requires --reason for no-changes)
-bd close <id> --reason="no-changes: <explanation>"  # Close without code changes
+# Closing — sub-issues you filed only; NEVER your hook bead (gt exit closes it)
+bd close <id>
 
 # Creating
 bd create --title="Found bug" --type=bug --priority=2    # File discovered work
@@ -394,7 +394,7 @@ bd create --rig beads "bd CLI bug"                       # File in another rig
 ```
 
 **Valid statuses:** `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hooked`
-(there is NO `done` or `complete` status — use `bd close`)
+(there is NO `done` or `complete` status — `gt exit` closes your hook bead)
 
 **Prefix routing:** `bd show {{ .IssuePrefix }}-xyz` routes to {{ .RigName }} beads automatically.
 `bd show hq-abc` routes to town beads. Routes defined in `{{ .TownRoot }}/.beads/routes.jsonl`.
@@ -439,30 +439,19 @@ If your session dies before persisting, the work is lost forever.
 
 **Report-only tasks** (audits, reviews, research): your findings ARE the
 deliverable. No code to commit. You MUST persist findings to the bead.
-Use `gt exit --cleanup-status clean` when completing with no code changes.
+Use `bd update <id> --notes "no-changes: <why>"` then `gt exit` when there is no code to ship.
 
-## PR Workflow (for repos that use pull requests)
+## PR Workflow (every repo)
 
-**Applies to:** longeye and other repos that require code review via GitHub PRs
+Every repo takes a PR — there is no maintainer exception (laws-polecat #1).
 
-### New Workflow (PR-based)
 1. Implement → Test
-2. **Create PR** (with branch naming: adam/YY/M/description)
-3. **Monitor PR** — Check CI and review status
-4. **Address feedback** — Fix issues if CI fails or reviewers comment
-5. **Verify ready** — Confirm CI green and PR approved
-6. **`bd update <id> --notes "..." && gt exit`** — Mark complete and exit (maintainer will merge)
+2. Push your branch, **create the PR** (`gh pr create`)
+3. Create the foreman bead (see Completion Protocol above)
+4. **`bd update <id> --notes "..." && gt exit`** — persist findings and exit
 
-**Keep the bead OPEN** during PR review. Don't mark complete until CI passes and PR approved.
-
-**You may cycle** while waiting for review:
-```bash
-gt handoff -s "Waiting for PR review" -m "Issue: <issue>
-PR: #<number>
-Status: <current state>"
-```
-
-**You do NOT merge the PR** — a maintainer or operator does that.
+You do NOT wait on CI or review: the foreman handles review comments, and the
+operator reviews and merges. **You do NOT merge the PR.**
 
 ## Before Signaling Done (MANDATORY)
 
@@ -475,29 +464,18 @@ git status              # Must be clean (no uncommitted changes)
 git log --oneline -3    # Verify your commits are present
 ```
 
-Then submit: **`bd update <id> --notes "..." && gt exit`** ← MANDATORY FINAL STEP
+Then, with the PR open: **`bd update <id> --notes "..." && gt exit`** ← MANDATORY FINAL STEP
 
-This single command verifies git is clean and submits your branch to the merge
-The daemon handles the rest.
+`gt exit` auto-commits anything left, pushes your branch, persists your notes,
+closes your bead, and ends the session. The reaper handles the rest.
 
-**Note:** Do NOT manually close the root issue with `bd close`. The operator
-closes it after successful merge.
-
-### No PRs in Maintainer Repos
-
-If you have direct push access to the repo (you're a maintainer):
-- **NEVER create GitHub PRs** — push directly to main instead
-- Polecats: use `bd update <id> --notes "..." && gt exit` → operator merges to main
-
-PRs are for external contributors. Check `git remote -v` to identify repo ownership.
+**Note:** Do NOT `bd close` the root issue yourself — `gt exit` closes it.
 
 ### The Landing Rule
 
-> **Work is NOT landed until it's on `main` OR in the operator MQ.**
+> **Work is NOT landed until the operator merges your PR to `main`.**
 
-Your local branch is NOT landed. Run `bd update <id> --notes "..." && gt exit` to submit to the GitHub PR.
-
-**Local branch → `bd update <id> --notes "..." && gt exit` → MR in queue → operator merges → LANDED**
+**Local branch → push → `gh pr create` → `gt exit` → operator reviews and merges → LANDED**
 
 ## If You're Stuck: Escalate and Move On
 
@@ -522,7 +500,7 @@ BODY
 {{ cmd }} mail send mayor/ -s "BLOCKED: <topic>" -m "Brief context"
 ```
 
-**After escalating:** Continue with other work if possible, or run `gt exit --status=ESCALATED`.
+**After escalating:** Continue with other work if possible, or run `gt exit --notes "escalated: <what>"`.
 Do NOT sit idle waiting for response.
 
 ## Gas Town is a Village
@@ -590,7 +568,7 @@ For long-running operations, prefer `run_in_background: true` on Task and Bash t
 
 | Want to... | Correct command | Common mistake |
 |------------|----------------|----------------|
-| Signal work complete | `bd update <id> --notes "..." && gt exit` | ~~bd close <root-issue>~~ (operator closes it) |
+| Signal work complete | `bd update <id> --notes "..." && gt exit` | ~~bd close <root-issue>~~ (gt exit closes it) |
 | Close a sub-issue | `bd close <id>` | ~~bd complete~~ (not a command), ~~bd update --status done~~ (invalid status) |
 | Message another agent | `{{ cmd }} nudge <target> "msg"` | ~~tmux send-keys~~ (unreliable) |
 | Check workflow steps | `{{ cmd }} prime` (shows inline checklist) | ~~bd mol current~~ (steps not materialized) |

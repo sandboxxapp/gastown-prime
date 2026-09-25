@@ -321,8 +321,8 @@ func outputPolecatContext(ctx RoleContext) {
 	fmt.Println("## Key Commands")
 	fmt.Println("- `" + cli.Name() + " mail inbox` - Check your inbox for work assignments")
 	fmt.Println("- `bd show <issue>` - View your assigned issue")
-	fmt.Println("- `bd close <issue>` - Mark issue complete")
-	fmt.Println("- `" + cli.Name() + " done` - Signal work ready for merge")
+	fmt.Println("- `bd update <issue> --notes \"...\"` - Persist findings")
+	fmt.Println("- `" + cli.Name() + " exit` - Push, close your bead, and exit (after your PR is open)")
 	fmt.Println()
 	fmt.Println("## Hookable Mail")
 	fmt.Println("Mail can be hooked for ad-hoc instructions: `" + cli.Name() + " hook attach <mail-id>`")
@@ -429,7 +429,7 @@ func outputCommandQuickReference(ctx RoleContext) {
 	case RolePolecat:
 		fmt.Println("| Want to... | Correct command | Common mistake |")
 		fmt.Println("|------------|----------------|----------------|")
-		fmt.Printf("| Signal work complete | `%s done` | ~~bd close <root-issue>~~ (Refinery closes it) |\n", c)
+		fmt.Printf("| Signal work complete | `%s exit` (after `gh pr create`) | ~~bd close <root-issue>~~ (gt exit closes it) |\n", c)
 		fmt.Println("| Close a sub-issue | `bd close <id>` | ~~bd complete~~ (not a command), ~~bd update --status done~~ (invalid status) |")
 		fmt.Printf("| Message another agent | `%s nudge <target> \"msg\"` | ~~tmux send-keys~~ (unreliable) |\n", c)
 		fmt.Println("| Check workflow steps | `bd mol current` | ~~bd ready~~ (excludes molecule steps) |")
@@ -562,11 +562,11 @@ func outputStartupDirective(ctx RoleContext) {
 		fmt.Println("1. Run `" + cli.Name() + " prime` (loads full context, mail, and pending work)")
 		fmt.Println("2. Check if any mail was injected above in this output")
 		fmt.Println("3. If you have mail with work instructions → execute that work")
-		fmt.Println("4. If NO mail → run `" + cli.Name() + " done` IMMEDIATELY")
+		fmt.Println("4. If NO mail → run `" + cli.Name() + " exit` IMMEDIATELY")
 		fmt.Println()
 		fmt.Println("Polecat sessions are ephemeral. No work on hook + no mail = terminate.")
 		fmt.Println("DO NOT wait. DO NOT escalate. DO NOT send idle alerts.")
-		fmt.Println("Just run `" + cli.Name() + " done` and exit.")
+		fmt.Println("Just run `" + cli.Name() + " exit`.")
 	case RoleRefinery:
 		if stopped, reason := IsRigParkedOrDocked(ctx.TownRoot, ctx.Rig); stopped {
 			fmt.Println()

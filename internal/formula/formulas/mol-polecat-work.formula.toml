@@ -20,7 +20,7 @@ the checklist, then submit your PR and exit.
 **You do NOT:**
 - Push directly to main (PRs are the only path to main)
 - Merge your own PR (the mayor reviews and merges)
-- Fix pre-existing failures on main (Refinery owns main health)
+- Fix pre-existing failures on main (out of scope — file a bead)
 - Run `gt done` — **the exit verb is `gt exit`** (sbx-gastown-vf98i). `gt done` submits to a
   merge queue and transitions you to IDLE with the sandbox and session PRESERVED; this town
   runs dispatch-and-kill, where the slot must be RELEASED. They are not synonyms. Every
@@ -68,9 +68,9 @@ Mechanism + profile config: `rigs/gastown-prime/domain/secrets-injection.md` (gt
 | Situation | Action |
 |-----------|--------|
 | Build fails | Fix it. Do not proceed if it won't compile. |
-| Blocked on external | Close bead with --reason="blocked: <details>", run gt exit |
-| Context filling | Commit work, push branch, close bead, run gt exit |
-| Unsure what to do | Close bead with --reason="unclear: <details>", run gt exit |
+| Blocked on external | `bd update <id> --notes "blocked: <details>"`, run gt exit (it closes the bead) |
+| Context filling | Commit work, push branch, persist notes, run gt exit |
+| Unsure what to do | `bd update <id> --notes "unclear: <details>"`, run gt exit |
 
 ## Turn-Note Discipline
 
@@ -141,8 +141,8 @@ gt mail inbox
 
 **4. Check for prior merge failure context:**
 
-If the bead notes contain "MERGE REJECTION", a previous polecat's work was
-rejected by the refinery. Read the failure details carefully:
+If the bead notes record a rejected prior attempt (a REQUEST_CHANGES review or a
+failed check on its PR — this town has no refinery), read the failure details carefully:
 - **Failure-Type**: what broke (tests, build, lint, typecheck)
 - **Error**: the actual error output
 - **Branch**: the previous branch may still exist with the original work
@@ -164,7 +164,7 @@ A grep or a source read is VERIFY-AT-SOURCE — step 3, confirming an exact fact
 step 1, discovering WHETHER the thing exists. That is what orientation answers.
 
 The door works from any cwd: no bridge checkout, no `gcloud run services proxy`, no MCP.
-The full recipe — mint, `POST /search`, `GET /map`, section-scoped `GET /concept`, the
+The full recipe — the injected token, `POST /search`, `GET /map`, section-scoped `GET /concept`, the
 filter vocabulary, and the `POST /notes` write-back — is **appended to this step at prime
 time** from the town overlay, and is written once in
 `formula-overlays/shared/context-db-door.md`.
@@ -177,17 +177,15 @@ time** from the town overlay, and is written once in
 > `scripts/sync-formula-overlays.sh`, gated by `scripts/check-formula-overlays.sh`.
 
 If for any reason the block is not in your primed context, the always-current contract is one
-call away and needs nothing but the mint:
+call away on the injected `CONTEXT_DB_TOKEN` (never mint one; unset or 401 = door shut):
 
 ```bash
-CTX=https://context-db-2hazwepeiq-uc.a.run.app
-TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
-        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+CTX="$CONTEXT_DB_URL"; TOKEN="$CONTEXT_DB_TOKEN"   # INJECTED by gt sling — never mint (laws-polecat #0/#4)
 curl -s -H "Authorization: Bearer $TOKEN" "$CTX/agents"   # the baked AGENTS.md doctrine
 ```
 
-`GET /agents` → 200 is also the liveness probe; `/healthz` is **404 on the *.run.app URL by
-design**, not an outage. A hit is a **MAP, never the value** — verify the exact fact at the
+`GET /agents` is **not** a liveness probe — it has 503'd while reads served (`sbx-gastown-yd4as`);
+probe with `POST /search`. `/healthz` is **404 on the *.run.app URL by design**, not an outage. A hit is a **MAP, never the value** — verify the exact fact at the
 source before you act. **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — a stopgap, never
 a licence to skip orientation and go straight to source.
 
@@ -436,7 +434,8 @@ This MUST show at least 1 commit. If it shows NOTHING:
 - You have NOT completed your implementation. Do NOT close this step.
 - Go back to the implement step and do the work.
 - If the task genuinely requires no code changes (already fixed upstream, etc.),
-  close the bead with `bd close {{issue}} --reason="no-changes: <explanation>"` and run `gt exit`.
+  persist `bd update {{issue}} --notes "no-changes: <explanation>"` and run `gt exit`.
+  Do NOT `bd close` it yourself (laws-polecat #6) — `gt exit` closes it.
 - Do NOT proceed to review or build with zero commits.
 
 **5. VERIFY clean working tree:**
@@ -517,9 +516,9 @@ id = "build-check"
 title = "Build and sanity check"
 needs = ["self-review"]
 description = """
-Verify your changes compile and pass basic sanity checks. The Refinery's
-bisecting merge queue runs the full test suite — your job is to catch
-obvious problems fast so you don't waste the MQ's time.
+Verify your changes compile and pass basic sanity checks. CI on your PR runs
+the full test suite — your job is to catch obvious problems fast so you don't
+waste the reviewer's time. (There is no refinery or merge queue in this town.)
 
 **1. Build (REQUIRED — must pass):**
 
@@ -542,13 +541,13 @@ Empty commands mean "not configured" — skip silently.
 
 **2. If build fails:**
 - Fix it. Return to implement step if needed.
-- Do NOT submit broken code to the merge queue.
+- Do NOT open a PR with broken code.
 
 **3. Targeted tests (OPTIONAL — run if fast and relevant):**
 
 If you modified or added test files, run those specific tests to catch
-obvious regressions. Do NOT run the full test suite — that's the
-Refinery's job.
+obvious regressions. Do NOT run the full test suite — that's CI's job
+on your PR.
 
 ```bash
 # Example: run only tests in packages you changed
@@ -556,7 +555,7 @@ go test ./internal/pkg/you/changed/...
 # Or for JS: npx jest --testPathPattern="changed-file"
 ```
 
-If you're unsure which tests are relevant, skip this — the MQ will catch it.
+If you're unsure which tests are relevant, skip this — CI on your PR will catch it.
 
 **4. Lint (OPTIONAL — run if configured and fast):**
 
@@ -619,7 +618,7 @@ Empty commands mean "not configured" — skip silently.
 
 **3. If any gate fails after rebase:**
 - Fix the issue, commit, and re-run from step 1
-- Do NOT proceed with --pre-verified if gates failed
+- Do NOT open the PR if gates failed
 
 **4. If all gates pass:**
 You are ready to submit your PR in the next step.
@@ -705,7 +704,7 @@ role: foreman
 formula: mol-foreman-pr-response"
 ```
 
-**4. Save and exit (do NOT close the bead):**
+**4. Save and exit (do NOT `bd close` the bead — `gt exit` closes it):**
 ```bash
 gt exit --notes "PR created: <PR URL>. Foreman bead: <foreman-bead-id>. Summary: <what was done>"
 ```
@@ -722,15 +721,15 @@ opened their PR, and then sat idle forever holding a worktree and a tmux
 session; several NARRATED an exit they never performed. Saying you exited is
 not exiting. Run the command and read its output.
 
-**Do NOT close your bead.** The archivist closes it after extracting domain knowledge
-from your work. Your bead stays open as a signal that post-processing is pending.
-An open bead is not an unfinished job — do not let it keep you here.
+**Do NOT `bd close` your bead yourself** (laws-polecat #6). `gt exit` closes it when it
+pushes, and writes your findings to `rigs/<rig>/domain/notes/` for the archivist to fold.
+Once you have exited there is nothing left for you to wait on — do not linger.
 
 **What happens next (not your concern):**
-- The daemon detects your open bead + exited session → spawns an archivist
-- The archivist extracts knowledge into domain docs and closes your bead
+- The deacon reaper sees your exited session and dispatches an archivist
+- The archivist folds your findings note into the rig domain docs
 - The foreman handles PR review comments
-- The daemon reaper cleans up your worktree
+- The deacon reaper cleans up your worktree
 
 You are NOT involved in any of that. Your PR is one OUTPUT of this bead; the
 bead's deliverables are the PR **and** your persisted findings **and** the exit.

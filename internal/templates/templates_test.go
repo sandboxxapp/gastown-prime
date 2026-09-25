@@ -573,13 +573,13 @@ func TestCreatePolecatCLAUDEmd(t *testing.T) {
 
 	// Verify critical exit instructions are present
 	if !strings.Contains(content, "bd update") {
-		t.Fatal("CLAUDE.md does not contain 'bd close' — polecats will not know to close beads")
+		t.Fatal("CLAUDE.md does not contain 'bd update' — polecats will not know to persist findings")
 	}
 	if !strings.Contains(content, "IDLE POLECAT HERESY") {
 		t.Error("CLAUDE.md missing 'IDLE POLECAT HERESY' warning section")
 	}
-	if !strings.Contains(content, "/exit") {
-		t.Error("CLAUDE.md missing /exit instruction for session termination")
+	if !strings.Contains(content, "gt exit") {
+		t.Error("CLAUDE.md missing gt exit instruction for session termination")
 	}
 }
 
