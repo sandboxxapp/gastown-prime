@@ -2188,13 +2188,20 @@ func (m *Manager) loadFromBeads(name string) (*Polecat, error) {
 		Priority: -1,
 	})
 	if hookedErr == nil && len(hookedBeads) > 0 {
+		// Use the same arbitration gt prime uses, so the issue reported for this
+		// slot is the one the polecat is actually running. Taking [0] here made
+		// a recycled slot carrying a stale hook report the stale bead — status
+		// output that corroborated the wrong answer (sbx-gastown-qrfaa6).
+		// No warning is emitted: this is a status read called in loops, and the
+		// operator-facing warnings live on gt sling and gt prime.
+		hookedBead, _ := beads.SelectHookedBead(hookedBeads)
 		return &Polecat{
 			Name:      name,
 			Rig:       m.rig.Name,
 			State:     StateWorking,
 			ClonePath: clonePath,
 			Branch:    branchName,
-			Issue:     hookedBeads[0].ID,
+			Issue:     hookedBead.ID,
 		}, nil
 	}
 

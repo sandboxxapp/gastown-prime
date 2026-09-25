@@ -709,13 +709,21 @@ func getHookedWork(identity string, maxLen int, beadsDir string) string {
 		return ""
 	}
 
-	// Return first hooked bead's ID and title, truncated
-	bead := hookedBeads[0]
-	display := fmt.Sprintf("%s: %s", bead.ID, bead.Title)
-	if len(display) > maxLen {
-		display = display[:maxLen-1] + "…"
+	// Arbitrate rather than take [0], so the statusline names the bead gt prime
+	// will actually run — a statusline naming a different bead than the polecat
+	// is working is part of what made the armed-hook hijack invisible
+	// (sbx-gastown-qrfaa6). Display only: nothing here mutates a bead, and the
+	// statusline has no channel for a full warning, so a multi-hook slot gets a
+	// count badge — enough for an operator to go look.
+	bead, losers := beads.SelectHookedBead(hookedBeads)
+	if bead == nil {
+		return ""
 	}
-	return display
+	display := fmt.Sprintf("%s: %s", bead.ID, bead.Title)
+	if len(losers) > 0 {
+		display = fmt.Sprintf("⚠%d %s", len(losers)+1, display)
+	}
+	return truncateDisplay(display, maxLen)
 }
 
 // getCurrentWork returns a truncated title of the first in_progress issue assigned to identity.
