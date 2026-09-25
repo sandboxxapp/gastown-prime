@@ -68,41 +68,53 @@ func TestReviewPRSubmitStep_HeadersAsGastownReview(t *testing.T) {
 	}
 }
 
-// TestReviewPRSubmitStep_IdentityFallback verifies the step prefers the KbotSB bot
-// identity but falls back to posting the content under the operator identity when
-// the bot is unavailable — and never silently skips the PR post.
+// TestReviewPRSubmitStep_IdentityFallback verifies the step posts as KbotSB — the
+// credential on each gh call, since shell state does not survive a tool call — and
+// falls back to ambient auth (disclosed in the body) when the login does not come
+// back KbotSB. The PR post is never silently skipped (sbx-gastown-xs1uq7: operator
+// re-scope KEEPS "post as KbotSB"; only the stale tzpay wording goes).
 func TestReviewPRSubmitStep_IdentityFallback(t *testing.T) {
 	desc := findReviewPRSubmitStep(t).Description
 
-	if !strings.Contains(desc, "KbotSB") {
-		t.Error("submit-review step should reference the KbotSB bot identity as preferred")
+	if !strings.Contains(desc, "Post the review as KbotSB") {
+		t.Error("submit-review step should direct the reviewer to post as KbotSB")
 	}
-	if !strings.Contains(desc, "gh auth status") {
-		t.Error("submit-review step should detect identity via 'gh auth status'")
+	if !strings.Contains(desc, "mayor/credentials/kbotsb.token") {
+		t.Error("submit-review step should name the KbotSB credential file")
 	}
-	if !strings.Contains(desc, "fallback") && !strings.Contains(desc, "Fallback") {
-		t.Error("submit-review step should describe an operator-identity fallback")
+	if !strings.Contains(desc, `GH_TOKEN="$(cat "$KB")" gh pr review`) {
+		t.Error("submit-review step should put the KbotSB credential on each gh pr review call")
+	}
+	if !strings.Contains(desc, "ambient auth") {
+		t.Error("submit-review step should describe the ambient-auth fallback when ME is not KbotSB")
+	}
+	if !strings.Contains(desc, "DENY_BOT_LOGINS") {
+		t.Error("submit-review step should disclose that a KbotSB review is not auto-picked-up by the foreman dispatch")
 	}
 	// The PR post must never be silently skipped.
 	if !strings.Contains(desc, "NEVER silently skip") {
 		t.Error("submit-review step must state the PR post is NEVER silently skipped")
 	}
+	// The stale claim that KbotSB authenticates as the operator (sbx-gastown-tzpay)
+	// is false since 2026-09-24 and must not come back.
+	for _, stale := range []string{"tzpay", "authenticates as the\nOPERATOR", "KbotSB is down", "until the KbotSB fix lands"} {
+		if strings.Contains(desc, stale) {
+			t.Errorf("submit-review step still carries stale KbotSB wording %q", stale)
+		}
+	}
 }
 
-// TestReviewPRSubmitStep_NoOperatorSelfApprove verifies the step forbids posting a
-// formal `gh pr review --approve` stamp under the operator identity (GitHub rejects
-// self-approval), reserving formal review STATE for the genuine bot path.
+// TestReviewPRSubmitStep_NoOperatorSelfApprove verifies the step forbids a formal
+// `gh pr review --approve` when the reviewer authored the PR (GitHub rejects
+// self-approval), gating formal review STATE on ME vs PR_AUTHOR.
 func TestReviewPRSubmitStep_NoOperatorSelfApprove(t *testing.T) {
 	desc := findReviewPRSubmitStep(t).Description
 
-	// It must explicitly warn against the operator self-approval stamp.
-	lower := strings.ToLower(desc)
-	if !strings.Contains(lower, "self-approval") && !strings.Contains(lower, "operator\nidentity") && !strings.Contains(lower, "operator identity") {
-		t.Error("submit-review step should warn that operator-identity self-approval is rejected")
+	if !strings.Contains(strings.ToLower(desc), "self-approval") {
+		t.Error("submit-review step should warn that self-approval is rejected")
 	}
-	// Formal review state must be gated to the bot path.
-	if !strings.Contains(desc, "bot path") {
-		t.Error("submit-review step should reserve formal review state for the bot path")
+	if !strings.Contains(desc, "gated on authorship") || !strings.Contains(desc, "PR_AUTHOR") {
+		t.Error("submit-review step should gate formal review state on ME vs PR_AUTHOR")
 	}
 }
 

@@ -183,7 +183,10 @@ bd update {{issue}} --notes "turn N: landscape read complete. Existing docs: <li
 **Exit criteria:** You know which file(s) you will author, what existing
 knowledge must be merged, and what superseded fragments will be deleted.
 
-When this step is complete, output the marker:
+When this step is complete, output the marker. (`STEP_COMPLETE` feeds the Go daemon's
+opt-in orchestrator patrol, `internal/daemon/orchestrator_patrol.go`, and is inert where that
+patrol is off — as in a town that runs no Go daemon. Emit it anyway: it costs one line and is
+the canary that proves `gt prime --hook` delivered the step body.)
 ```
 STEP_COMPLETE load-context
 ```"""
@@ -310,7 +313,7 @@ depth, not breadth (laws-prospector § 1).
    idempotency keys.
 6. Identify cross-rig edges: calls to other services, shared IDs, webhooks.
 
-**For each finding, capture in a working scratchpad:**
+**For each finding, record these fields** (the record you persist with `bd update --design` below):
 - The claim, one sentence.
 - The source: `file:line`.
 - Which section of the scaffold it belongs in.
