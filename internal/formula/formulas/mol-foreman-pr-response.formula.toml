@@ -147,19 +147,14 @@ The dispatcher uses each as an independent skip signal — belt-and-
 suspenders so a single slip-up doesn't restart the auto-reply loop:
 
 1. **Authenticate as KbotSB**, the gastown automation persona — never
-   as the operator. The polecat's worktree gh CLI defaults to the
-   operator's identity, so you MUST override per-invocation by exporting
-   `GH_TOKEN` from the bot token file BEFORE the gh call:
+   silently as the operator. The polecat's worktree gh CLI defaults to
+   the operator's identity, so you MUST override **on the gh invocation
+   itself** (`GH_TOKEN="$(cat "$KB")" gh …`). An `export` from an earlier
+   tool call is already gone — see POSTING FORM below.
 
-   ```bash
-   GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \
-     gh pr comment <pr_number> --body "..."
-   ```
-
-   Token path is `mayor/credentials/kbotsb.token` relative to the
-   bridge town root (gitignored, 0600). If the token file is missing
-   or empty, STOP and persist a round note explaining why no auto-
-   reply was posted — do NOT fall back to the operator identity.
+   🛑 **But run the IDENTITY PREFLIGHT below FIRST.** A present,
+   non-empty token file does not mean it is KbotSB's — and the export
+   succeeding does not mean the comment posts as the bot.
 
 2. **Start the body with the gastown-foreman auto-reply marker**, two
    lines in this exact order:
@@ -174,26 +169,155 @@ suspenders so a single slip-up doesn't restart the auto-reply loop:
    "Round N: ..."` line). `{{issue}}` is the foreman bead id —
    substitute it yourself if your shell doesn't expand it.
 
-Example for round 2 on bead `sbx-gastown-d3gc`:
+### 🛑 IDENTITY PREFLIGHT — one API call, ONCE per round, BEFORE your first comment
+
+**A file-existence check answers the wrong question.** `mayor/credentials/kbotsb.token`
+being present, `0600` and non-empty tells you nothing about WHO it authenticates as. On
+this town it has been byte-identical to the operator's own `gh` OAuth token since
+2026-05-19, so every comment ever posted "as KbotSB" was authored by the operator
+(first reported on `sbx-gastown-h2ukm`, since CLOSED; the live bead is
+`sbx-gastown-b82lb`). The old guard — *"if the token file is missing or empty, STOP"* —
+cannot see that: the file is neither. **Resolve the login, do not test the file.**
 
 ```bash
-GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \
-  gh pr comment <pr_number> --body "$(cat <<'EOF'
-<!-- gastown-foreman:auto-reply bead=sbx-gastown-d3gc round=2 -->
-> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+BOT_LOGIN=""
+if [ -s "$KB" ]; then
+  BOT_LOGIN="$(GH_TOKEN="$(cat "$KB")" gh api user --jq .login 2>/dev/null)"
+fi
+if [ "$BOT_LOGIN" = "KbotSB" ]; then
+  export GH_TOKEN="$(cat "$KB")"
+  POST_AS=KbotSB
+else
+  unset GH_TOKEN
+  POST_AS="$(gh api user --jq .login 2>/dev/null || echo UNKNOWN)"
+fi
+echo "foreman will post as: $POST_AS (expected KbotSB)"
+```
+
+`unset GH_TOKEN` in the else-branch is deliberate: a token that is neither empty nor
+KbotSB's still belongs to *somebody*, and posting under an unidentified third account is
+worse than posting under the operator's. **Fail closed** — an unresolvable probe counts as
+NOT KbotSB (GitHub REST `GET /user` has returned 503 while the rest of the API served).
+
+### 🛑 POSTING FORM — the preflight's `export` dies with its tool call
+
+A dispatched agent's shell state does not persist between tool calls. Measured, not
+assumed: `export PROBE=set_in_call_1` in one call reads `<UNSET>` in the next. Nothing
+else supplies the token either — a slung session carries **no** `GH_`/`GITHUB_` variable
+at all, and `grep -rn 'GH_TOKEN' --include='*.go'` over gastown-prime returns zero. The
+formula's own line is the only writer.
+
+So the preflight's durable output is **`$POST_AS`**, a fact you carry — not an exported
+token. Either post in the SAME tool call as the preflight, or re-apply the decision on the
+`gh` invocation itself:
+
+```bash
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+# $POST_AS was KbotSB — carry the credential per-invocation:
+GH_TOKEN="$(cat "$KB")" gh pr comment <pr_number> --body "..."
+# $POST_AS was anything else — the preflight's `unset`, per-invocation:
+env -u GH_TOKEN gh pr comment <pr_number> --body "..."
+```
+
+⚠️ A bare `gh pr comment` in a later call silently uses ambient auth — and so does a
+template trimmed to a hardcoded `env -u GH_TOKEN`. **That is the live branch now:** measured
+2026-09-25, `kbotsb.token` is a real PAT resolving to `KbotSB` while ambient auth is the
+operator (`sbx-gastown-pbjrde`). It is the forbidden outcome — `$POST_AS` says `KbotSB`, so no
+disclosure is added, while GitHub records the operator as author, `gh` exits 0 and nothing
+logs the mismatch (`sbx-gastown-pl9gh`).
+
+With the identity resolved there are exactly **two** branches — no third "post nothing"
+branch:
+
+| `$POST_AS` | what you do |
+|---|---|
+| `KbotSB` | post normally. The marker is still mandatory — it is an *independent* skip signal. |
+| anything else | post normally **and add the identity-disclosure block**, immediately after the two marker lines. |
+
+🛑 **The undisclosed operator-identity comment is the one outcome that is forbidden.** It was
+the pre-`fxl8o` behaviour, a one-branch template reproduces it, and it is the worst of the options: the reviewer cannot distinguish a bot
+reply from Eric typing, and `is_bot("KbotSB")` never fires. **Silence is not the fix
+either** — stopping here converts a credential defect into a *silent, total outage of the
+foreman role*, and a reviewer who is told nothing learns nothing. **Disclose and proceed.**
+
+**The disclosure block.** It goes AFTER line 1 (the marker) and line 2 (the blockquote).
+The marker must remain the first non-whitespace text in the body or
+`_is_foreman_auto_reply` will not match it and you will re-trigger yourself
+(`rigs/deacon/foreman.py:239-248` — position-anchored `body.lstrip().startswith`):
+
+```
+> ⚠️ **Identity disclosure — this comment is NOT authored by `KbotSB`.** It is posted as
+> `<POST_AS>`, because `mayor/credentials/kbotsb.token` does not resolve to the KbotSB
+> machine user. Provisioning that credential is an **operator** action; no agent may mint
+> or replace it. The dispatcher's identity skip signal is inert for this comment — the
+> `<!-- gastown-foreman:` marker on line 1 is the only live loop guard.
+```
+
+Example for round 2 on bead `sbx-gastown-d3gc`, posted in a tool call AFTER
+the preflight — so the identity is re-resolved on this call and the template
+picks its own branch (credential on the call for `KbotSB`, withheld and
+disclosed for anything else). Copy it whole; do not keep one branch:
+
+```bash
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+POST_AS=""
+[ -s "$KB" ] && POST_AS="$(GH_TOKEN="$(cat "$KB")" gh api user --jq .login 2>/dev/null)"
+DISCLOSE=""
+if [ "$POST_AS" != "KbotSB" ]; then
+  POST_AS="$(env -u GH_TOKEN gh api user --jq .login 2>/dev/null || echo UNKNOWN)"
+  DISCLOSE="
+> ⚠️ **Identity disclosure — this comment is NOT authored by \\`KbotSB\\`.** It is posted as
+> \\`${POST_AS}\\`, because \\`mayor/credentials/kbotsb.token\\` does not resolve to the KbotSB
+> machine user. Provisioning that credential is an **operator** action; no agent may mint
+> or replace it. The dispatcher's identity skip signal is inert for this comment — the
+> \\`<!-- gastown-foreman:\\` marker on line 1 is the only live loop guard."
+fi
+BODY="$(mktemp)"; trap 'rm -f "$BODY"' EXIT   # a FILE, not "$(cat <<EOF)": bash 3.2 mis-parses an apostrophe there
+# printf expands ONLY the marker lines and $DISCLOSE. Your prose goes in the
+# QUOTED heredoc (<<'EOF'), so a `code span` or $VAR in it posts verbatim. An
+# unquoted <<EOF would EXECUTE every code span and silently erase it, exit 0.
+printf '%s\\n%s\\n%s\\n' \\
+  '<!-- gastown-foreman:auto-reply bead=sbx-gastown-d3gc round=2 -->' \\
+  '> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._' \\
+  "$DISCLOSE" > "$BODY"
+cat >> "$BODY" <<'EOF'
 
 Addressed all four items in <commit-sha>. <details...>
 EOF
-)"
+if [ "$POST_AS" = "KbotSB" ]; then
+  GH_TOKEN="$(cat "$KB")" gh pr comment <pr_number> --body-file "$BODY"
+else
+  env -u GH_TOKEN gh pr comment <pr_number> --body-file "$BODY"
+fi
 ```
 
-Threaded review-comment replies (`gh api repos/.../pulls/.../comments`)
-follow the same pattern — same `GH_TOKEN` export, same marker on the
-body. Both signals are load-bearing — identity is the primary skip
-(`is_bot("KbotSB")` triggers `DENY_BOT_LOGINS` in the deacon's
-`filter_comments`); the marker is backup. A foreman that fails BOTH
-(operator-identity AND no marker) re-triggers itself and burns the
-dispatcher budget — that is the qv0h failure mode.
+**Record the mismatch in your round note — do NOT re-file it as a bead:**
+
+```bash
+bd update {{issue}} --notes "Round N: posted as $POST_AS, not KbotSB — identity disclosed inline in the comment. Credential untouched (operator action)."
+```
+
+- 🛑 **Do NOT file a bead.** This defect is known, measured and unfixed: **14 open
+  duplicates** at the 2026-09-02 census. The count drifts, so `bd search kbotsb` is the
+  live list (`bd list --search` is not a flag and exits 1). Append a datapoint to
+  **`sbx-gastown-b82lb`** (P1, OPEN) and move on. ⚠️ Not `sbx-gastown-h2ukm` — that one
+  was CLOSED in the 2026-08-25 bulk triage; appending there writes where nobody reads.
+- 🛑 **Do NOT touch, mint or replace the credential file.** It is out-of-worktree and
+  irreversible — polecat law #13's carve-out. A polecat writing town credentials is worse
+  than the bug.
+- 🛑 **Do NOT delete-and-repost** to "fix" the identity. The repost lands under the same
+  broken credential: it destroys the round's content and changes nothing.
+
+Threaded review-comment replies (`gh api repos/.../pulls/.../comments`) follow the same
+pattern — same preflight, same POSTING FORM, same marker, same disclosure. Both signals
+are load-bearing:
+identity is the *intended* primary skip (`is_bot("KbotSB")` triggers `DENY_BOT_LOGINS` in
+the deacon's `filter_comments`), the marker is backup. ⚠️ **While the credential is wrong
+the primary skip is dead town-wide, so the marker is the only live guard** — which is
+exactly why the preflight may never be used as an excuse to skip it. A foreman that fails
+BOTH (operator-identity AND no marker) re-triggers itself and burns the dispatcher
+budget — that is the qv0h failure mode.
 
 ## Variables
 
@@ -204,7 +328,7 @@ dispatcher budget — that is the qv0h failure mode.
 | source_bead | bead description | The original polecat's issue bead ID |
 | base_branch | sling vars | The target branch for the PR |"""
 formula = "mol-foreman-pr-response"
-version = 6
+version = 8
 
 [[steps]]
 id = "load-context"
@@ -269,7 +393,10 @@ incomplete.
 **Exit criteria:** You have read all four sources; you know which comments are new; and for
 each one you know whether it is addressable from the brief or needs escalation.
 
-When this step is complete, output the marker:
+When this step is complete, output the marker. (`STEP_COMPLETE` feeds the Go daemon's
+opt-in orchestrator patrol, `internal/daemon/orchestrator_patrol.go`, and is inert where that
+patrol is off — as in a town that runs no Go daemon. Emit it anyway: it costs one line and is
+the canary that proves `gt prime --hook` delivered the step body.)
 ```
 STEP_COMPLETE load-context
 ```"""
@@ -389,12 +516,34 @@ summary of what that commit changed:
 
 ```bash
 SHA="$(git rev-parse --short HEAD)"
-GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \\
-  gh pr comment <pr_number> --body "$(cat <<EOF
-<!-- gastown-foreman:auto-reply bead={{issue}} round=N -->
-> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
-
-Pushed \\`${SHA}\\` — <one-line commit summary>.
+# SELF-RESOLVING — copy the WHOLE block, `if`s included. This is a later tool
+# call than the preflight, so its `export GH_TOKEN` AND its `$POST_AS` are both
+# gone; the identity is re-resolved HERE and picks its own branch. Never trim
+# it to one hardcoded branch (sbx-gastown-pbjrde: `env -u GH_TOKEN` alone
+# posted UNDISCLOSED as the operator once the real KbotSB PAT landed).
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+POST_AS=""
+[ -s "$KB" ] && POST_AS="$(GH_TOKEN="$(cat "$KB")" gh api user --jq .login 2>/dev/null)"
+DISCLOSE=""
+if [ "$POST_AS" != "KbotSB" ]; then
+  POST_AS="$(env -u GH_TOKEN gh api user --jq .login 2>/dev/null || echo UNKNOWN)"
+  DISCLOSE="
+> ⚠️ **Identity disclosure — this comment is NOT authored by \\`KbotSB\\`.** It is posted as
+> \\`${POST_AS}\\`, because \\`mayor/credentials/kbotsb.token\\` does not resolve to the KbotSB
+> machine user. Provisioning that credential is an **operator** action; no agent may mint
+> or replace it. The dispatcher's identity skip signal is inert for this comment — the
+> \\`<!-- gastown-foreman:\\` marker on line 1 is the only live loop guard."
+fi
+BODY="$(mktemp)"; trap 'rm -f "$BODY"' EXIT   # a FILE, not "$(cat <<EOF)": bash 3.2 mis-parses an apostrophe there
+# printf expands ONLY the marker lines, $DISCLOSE and $SHA. Your prose goes in the
+# QUOTED heredoc (<<'EOF'), so a `code span` or $VAR in it posts verbatim. An
+# unquoted <<EOF would EXECUTE every code span and silently erase it, exit 0.
+printf '%s\\n%s\\n%s\\n\\nPushed `%s` — ' \\
+  '<!-- gastown-foreman:auto-reply bead={{issue}} round=N -->' \\
+  '> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._' \\
+  "$DISCLOSE" "$SHA" > "$BODY"
+cat >> "$BODY" <<'EOF'
+<one-line commit summary>.
 
 **What changed**
 - <file:line> — <the change and WHY it addresses the reviewer's point>
@@ -406,7 +555,12 @@ Pushed \\`${SHA}\\` — <one-line commit summary>.
 
 **Verification** — <tests/suites run and their result, e.g. "shipment-group 91/91, unit 896/899 (3 pre-existing)">
 EOF
-)"
+if [ "$POST_AS" = "KbotSB" ]; then
+  GH_TOKEN="$(cat "$KB")" gh pr comment <pr_number> --body-file "$BODY"
+else
+  env -u GH_TOKEN gh pr comment <pr_number> --body-file "$BODY"
+fi
+echo "posted as: $POST_AS"
 ```
 
 Rules for this comment:
@@ -417,8 +571,13 @@ Rules for this comment:
 - **Map each reviewer ask to an outcome.** If you deliberately did NOT do
   something a reviewer asked, say so here with the reason — do not leave a
   disagreement undisclosed.
-- Same KbotSB identity + auto-reply marker rules as below apply to this
-  comment; it is a PR-visible comment like any other.
+- Same KbotSB identity preflight + auto-reply marker rules as below apply
+  to this comment; it is a PR-visible comment like any other. ⚠️ The
+  preflight resolves `$POST_AS` once per round, but neither its `export
+  GH_TOKEN` nor `$POST_AS` itself reaches this call — shell state dies with
+  the tool call that set it. That is why the template above re-resolves the
+  identity and branches on its OWN result; every other `gh` call that posts
+  uses the **POSTING FORM** below.
 
 **For explanations / auto-replies:**
 
@@ -427,22 +586,95 @@ review body) MUST satisfy BOTH of the following — the dispatcher uses
 each as an independent skip signal (belt-and-suspenders so a single
 slip-up doesn't restart the auto-reply loop, sbx-gastown-qv0h):
 
-1. **Authenticate as KbotSB**, the gastown automation persona — never
-   as the operator. The polecat's worktree gh CLI defaults to the
-   operator's identity, so you MUST override per-invocation by exporting
-   `GH_TOKEN` from the bot token file BEFORE the gh call:
+1. **Post under a KNOWN, DECLARED identity** — KbotSB when the credential
+   is real, the operator's own login *with the mismatch stated in the
+   comment* when it is not. Never an undeclared identity claim.
+
+   🛑 **Run the IDENTITY PREFLIGHT before your first comment of the
+   round.** Testing that the token file exists is NOT the guard — a
+   present, non-empty, well-formed token that belongs to the operator
+   passes a file check and posts under the wrong login. Resolve it:
 
    ```bash
-   GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \\
-     gh pr comment <pr_number> --body "..."
+   KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+   BOT_LOGIN=""
+   if [ -s "$KB" ]; then
+     BOT_LOGIN="$(GH_TOKEN="$(cat "$KB")" gh api user --jq .login 2>/dev/null)"
+   fi
+   if [ "$BOT_LOGIN" = "KbotSB" ]; then
+     export GH_TOKEN="$(cat "$KB")"
+     POST_AS=KbotSB
+   else
+     unset GH_TOKEN
+     POST_AS="$(gh api user --jq .login 2>/dev/null || echo UNKNOWN)"
+   fi
+   echo "foreman will post as: $POST_AS (expected KbotSB)"
    ```
 
-   Token path is `mayor/credentials/kbotsb.token` relative to the bridge
-   town root (gitignored, 0600). If the token file is missing or empty,
-   STOP and persist a round note explaining why no auto-reply was
-   posted — do NOT fall back to the operator identity. KbotSB has org
-   read/write but the foreman only operates on rigged repos by design
-   (foreman_dispatcher pre-filters via repos.json).
+   One API call, once per round. `unset GH_TOKEN` is deliberate: a token
+   that is neither empty nor KbotSB's belongs to somebody, and posting
+   under an unidentified third account is worse than the operator's. Fail
+   closed — an unresolvable probe counts as NOT KbotSB.
+
+   🛑 **POSTING FORM — the preflight's `export` does NOT survive to your
+   next tool call.** A dispatched agent's shell state is destroyed between
+   tool calls. Measured, not assumed:
+
+   ```
+   call 1:  export PROBE=set_in_call_1   → set_in_call_1
+   call 2:  echo "${PROBE:-<UNSET>}"     → <UNSET>
+   ```
+
+   Nothing else supplies it either: a slung session carries **no**
+   `GH_`/`GITHUB_` variable at all, and `grep -rn 'GH_TOKEN'
+   --include='*.go'` over gastown-prime returns zero — the formula's own
+   line is the only writer. So the preflight's durable output is
+   **`$POST_AS`** — a fact you carry into your round note — and NOT an
+   exported token. Either post inside the same tool call as the preflight,
+   or re-apply the credential decision **on the `gh` invocation itself**:
+
+   ```bash
+   KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+   # $POST_AS was KbotSB — carry the credential per-invocation:
+   GH_TOKEN="$(cat "$KB")" gh pr comment <pr_number> --body "..."
+   # $POST_AS was anything else — the preflight's `unset`, per-invocation:
+   env -u GH_TOKEN gh pr comment <pr_number> --body "..."
+   ```
+
+   ⚠️ **A bare `gh pr comment` in a later call silently uses ambient auth.**
+   ⚠️ **This is the LIVE branch now.** Measured 2026-09-25:
+   `kbotsb.token` is a real PAT and `gh api user` with it returns
+   `KbotSB` (`sbx-gastown-pbjrde`), while ambient auth is still the
+   operator. So a bare call, or a hardcoded `env -u GH_TOKEN`, is the
+   forbidden outcome: `$POST_AS` says `KbotSB` so **no disclosure block is
+   added**, while GitHub records the operator as author.
+   `gh` exits 0, nothing logs a mismatch, and the next reviewer has no
+   signal (`sbx-gastown-pl9gh`; the harness measurement is written up in
+   bridge PR #223 as a domain note under `rigs/bridge/domain/notes/`).
+
+   **If `$POST_AS` is not `KbotSB`, you still post** — with the marker and
+   with this disclosure immediately after the two marker lines (the marker
+   must stay the first non-whitespace text in the body, `foreman.py:239-248`):
+
+   ```
+   > ⚠️ **Identity disclosure — this comment is NOT authored by `KbotSB`.** It is posted as
+   > `<POST_AS>`, because `mayor/credentials/kbotsb.token` does not resolve to the KbotSB
+   > machine user. Provisioning that credential is an **operator** action; no agent may mint
+   > or replace it. The dispatcher's identity skip signal is inert for this comment — the
+   > `<!-- gastown-foreman:` marker on line 1 is the only live loop guard.
+   ```
+
+   Then say so in your round note. **Do NOT file a bead** — 14 open
+   duplicates at the 2026-09-02 census, and the count drifts, so
+   `bd search kbotsb` is the live list. Append a datapoint to
+   **`sbx-gastown-b82lb`** (P1, OPEN); ⚠️ NOT `sbx-gastown-h2ukm`, which
+   the 2026-08-25 bulk triage closed. Also **do NOT touch or mint the
+   credential**, and **do
+   NOT delete-and-repost** — the repost lands under the same broken
+   credential. Token path is `mayor/credentials/kbotsb.token` under the
+   town root (gitignored, 0600); KbotSB has org read/write but the foreman
+   only operates on rigged repos by design (foreman_dispatcher pre-filters
+   via repos.json).
 
 2. **Start the body with the gastown-foreman auto-reply marker**, two
    lines in this exact order:
@@ -464,28 +696,121 @@ slip-up doesn't restart the auto-reply loop, sbx-gastown-qv0h):
      leave the literal `{{issue}}` in your gh invocation if your shell
      expands it to the bead, or substitute it yourself.
 
-Example for round 2 on bead `sbx-gastown-d3gc`:
+Example for round 2 on bead `sbx-gastown-d3gc`, posted in a tool call AFTER
+the preflight — so the identity is re-resolved on this call and the template
+picks its own branch (credential on the call for `KbotSB`, withheld and
+disclosed for anything else). Copy it whole; do not keep one branch:
 
 ```bash
-GH_TOKEN="$(cat ${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token)" \\
-  gh pr comment <pr_number> --body "$(cat <<'EOF'
-<!-- gastown-foreman:auto-reply bead=sbx-gastown-d3gc round=2 -->
-> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+POST_AS=""
+[ -s "$KB" ] && POST_AS="$(GH_TOKEN="$(cat "$KB")" gh api user --jq .login 2>/dev/null)"
+DISCLOSE=""
+if [ "$POST_AS" != "KbotSB" ]; then
+  POST_AS="$(env -u GH_TOKEN gh api user --jq .login 2>/dev/null || echo UNKNOWN)"
+  DISCLOSE="
+> ⚠️ **Identity disclosure — this comment is NOT authored by \\`KbotSB\\`.** It is posted as
+> \\`${POST_AS}\\`, because \\`mayor/credentials/kbotsb.token\\` does not resolve to the KbotSB
+> machine user. Provisioning that credential is an **operator** action; no agent may mint
+> or replace it. The dispatcher's identity skip signal is inert for this comment — the
+> \\`<!-- gastown-foreman:\\` marker on line 1 is the only live loop guard."
+fi
+BODY="$(mktemp)"; trap 'rm -f "$BODY"' EXIT   # a FILE, not "$(cat <<EOF)": bash 3.2 mis-parses an apostrophe there
+# printf expands ONLY the marker lines and $DISCLOSE. Your prose goes in the
+# QUOTED heredoc (<<'EOF'), so a `code span` or $VAR in it posts verbatim. An
+# unquoted <<EOF would EXECUTE every code span and silently erase it, exit 0.
+printf '%s\\n%s\\n%s\\n' \\
+  '<!-- gastown-foreman:auto-reply bead=sbx-gastown-d3gc round=2 -->' \\
+  '> _Auto-reply from gastown foreman polecat — context for human reviewer only. The dispatcher will not treat this as a new review comment._' \\
+  "$DISCLOSE" > "$BODY"
+cat >> "$BODY" <<'EOF'
 
 Addressed all four items in <commit-sha>. <details...>
 EOF
-)"
+if [ "$POST_AS" = "KbotSB" ]; then
+  GH_TOKEN="$(cat "$KB")" gh pr comment <pr_number> --body-file "$BODY"
+else
+  env -u GH_TOKEN gh pr comment <pr_number> --body-file "$BODY"
+fi
 ```
 
 Threaded review-comment replies (`gh api repos/.../pulls/.../comments`)
-follow the same pattern — same `GH_TOKEN` export, same marker on the
-body.
+follow the same pattern — same preflight, same POSTING FORM, same marker,
+same disclosure when `$POST_AS` is not `KbotSB`.
 
 **Both signals are load-bearing.** Identity is the primary skip
 (`is_bot("KbotSB")` triggers `DENY_BOT_LOGINS` in `filter_comments`);
 the marker is backup in case a future variant slips an auto-reply under
 a different identity. A foreman that fails BOTH (operator-identity AND
 no marker) will re-trigger itself.
+
+### The identity rule that was RETIRED — and why it must not come back
+
+⚠️ **This step is delivered by a `mode = "replace"` overlay**
+(`formula-overlays/mol-foreman-pr-response.toml`). The copy compiled into the
+`gt` binary still carries the rule this one supersedes: an unconditional
+`GH_TOKEN` export, and a STOP-when-the-token-file-is-missing branch. `replace`
+is what keeps that retired text out of the step you are reading. Under `append`
+it arrived **first**, 2,600 characters ahead of its own correction, phrased as
+numbered instruction #1 (`sbx-gastown-sum37`).
+
+⚠️ **What was retired is the UNCONDITIONAL export and the STOP branch — not
+per-invocation-ness.** The embed's shape (`GH_TOKEN=… gh …`, applied on the
+call) is the one property that actually survives this harness, and the POSTING
+FORM above deliberately keeps it. The defect was exporting *without resolving
+the login first*, and stopping when the file was absent. Do not read this
+retirement notice as licence to hoist the credential into a once-per-round
+`export` and post from a later tool call — that variable is gone by then
+(`sbx-gastown-pl9gh`).
+
+🛑 **Stopping is not the fix.** A STOP on a bad credential converts a credential
+defect into a *silent, total outage of the foreman role* — the round's reply is
+lost, the reviewer is told nothing, and the PR sits with a stale
+`REQUEST_CHANGES`. **Disclose and proceed.**
+
+🛑 **The forbidden outcome is the UNDECLARED identity claim** — a comment that
+reads as if a bot wrote it while GitHub records the operator as its author.
+`is_bot("KbotSB")` / `DENY_BOT_LOGINS` never fires on it, and the reviewer
+cannot tell a bot reply from Eric typing.
+
+⚠️ **Do not reintroduce the older `town_root` spelling** — that bare name
+wrapped in gastown's doubled-brace template syntax. It is not a template
+variable anywhere in gastown-prime: substitution rewrites only the keys present
+in the var map (`applyFormulaVars`, `internal/cmd/prime_molecule.go:209-215`)
+and unknown placeholders are explicitly left as-is (`ExpandTemplateVars`,
+`internal/beads/molecule.go:225-240`). So it renders LITERALLY, resolves to
+nothing, and a foreman that reads it as a real path concludes "token missing"
+and posts nothing at all (`sbx-gastown-enk32`). The path is
+`${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token` — shell, not
+template.
+
+This notice deliberately does NOT spell the placeholder out, and that is not
+squeamishness: the guard on it is a byte-level scan of this step
+(`tests/test_deacon_foreman.bats`, "formula resolves the KbotSB LOGIN") which
+cannot distinguish a prohibition from a use — and it should not try to. A
+literal placeholder sitting in the step a foreman actually receives is exactly
+what an agent reaching for the first path-shaped string would copy. Write the
+ban; do not ship the specimen.
+
+There are exactly TWO branches out of the preflight. Neither of them is silence:
+
+| `$POST_AS` | what you do |
+|---|---|
+| `KbotSB` | post normally. The auto-reply marker is **still mandatory** — it is an *independent* skip signal, not a substitute. |
+| anything else | post normally **and add the disclosure block**, immediately after the two marker lines. |
+
+**Verify containment before you conclude you are safe.** Read the posted body
+back and confirm the marker is at byte 0 — REST, not GraphQL:
+
+```bash
+gh api repos/<owner>/<repo>/issues/comments/<comment-id> --jq '.body[0:40]'
+```
+
+When `$POST_AS` is not `KbotSB`, record it in the round note as well:
+
+```bash
+bd update {{issue}} --notes "Round N: posted as $POST_AS, not KbotSB — identity disclosed inline in the comment. Credential untouched (operator action)."
+```
 
 **Persist your round summary:**
 ```bash

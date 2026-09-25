@@ -18,12 +18,12 @@ gt exit
 Do NOT:
 - Sit idle waiting for more work (there is no more work — you're done)
 - Say "work complete" without persisting findings
-- Close the bead yourself (the archivist closes it after knowledge extraction)
+- Close the bead yourself (`gt exit` closes it; the archivist folds your findings)
 - Run `gt done` (not used in our model)
 - Wait for confirmation or approval (persist and exit)
 
-**Your session should NEVER end without persisting findings.** The bead stays open
-so the archivist can extract domain knowledge from your work. `gt exit` signals you're done.
+**Your session should NEVER end without persisting findings.** `gt exit` closes the bead
+and writes your findings to a domain note the archivist folds — notes you never persisted are lost.
 
 ---
 
@@ -65,7 +65,7 @@ formula checklist (from `mol-polecat-work`, shown inline at prime time) and sign
 
 1. Receive work via your hook (formula checklist + issue)
 2. Work through formula steps in order (shown inline at prime time)
-3. Push branch, create PR via `gh pr create`, close bead, `gt exit`
+3. Push branch, create PR via `gh pr create`, persist findings, `gt exit` (it closes the bead)
 4. The mayor reviews and merges your PR
 
 **Three operating states:**
@@ -107,7 +107,7 @@ Your work is driven by **formulas** — structured workflow templates with step-
 1. A formula (e.g., `mol-polecat-work`) is attached to your hook bead when dispatched
 2. `gt prime` renders the formula steps inline — you see the full checklist
 3. Work through steps in order. Each step has exit criteria.
-4. Push, create PR, close bead, exit
+4. Push, create PR, persist findings, `gt exit`
 
 **You do NOT need to manually find or run formulas.** They are attached to your hook
 bead and rendered automatically. This reference exists to eliminate discovery overhead.
@@ -125,14 +125,14 @@ bd list --status=open                 # List open issues
 bd update <id> --status=in_progress   # Claim work
 bd update <id> --notes "..."          # Persist findings (survives session death)
 bd update <id> --design "..."         # Persist structured analysis
-bd update <id> --notes "done: <summary>"  # Persist completion summary (archivist closes)
+bd update <id> --notes "done: <summary>"  # Persist completion summary (gt exit closes)
 
 # Creating
 bd create --title="Found bug" --type=bug --priority=2  # File discovered work
 ```
 
 **Valid statuses:** `open`, `in_progress`, `blocked`, `deferred`, `closed`, `pinned`, `hooked`
-(there is NO `done` or `complete` status — the archivist closes beads after extraction)
+(there is NO `done` or `complete` status — `gt exit` closes your bead)
 
 ## Dolt Connectivity
 
@@ -178,8 +178,8 @@ persisting and closing, the findings survive. If you close first, they're lost.
 bd update <id> --notes "no-changes: <brief explanation>"
 gt exit
 ```
-**Always persist findings before exiting.** The bead stays open — the archivist
-closes it after extracting domain knowledge. `gt exit` signals you're done.
+**Always persist findings before exiting.** `gt exit` closes the bead; the archivist
+folds your findings into the domain docs afterwards.
 
 ---
 
@@ -214,7 +214,7 @@ Bead: <issue>"
 ### Beads
 ```bash
 bd show <id>                    # View issue details
-bd update <id> --notes "..."    # Persist findings (archivist closes beads)
+bd update <id> --notes "..."    # Persist findings (gt exit closes the bead)
 bd create --title "..."         # File discovered work (don't fix it yourself)
 ```
 

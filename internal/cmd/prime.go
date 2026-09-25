@@ -267,11 +267,11 @@ func runPrimeCompactResume(ctx RoleContext) {
 	fmt.Println()
 	fmt.Println("**Continue your current task.** If you've lost context, run `gt prime` for full reload.")
 
-	// Remind polecats about gt done — after compaction the agent may have lost
-	// the formula checklist and forgotten that gt done is required to submit work.
+	// Remind polecats about gt exit — after compaction the agent may have lost
+	// the formula checklist and forgotten that gt exit is required to finish.
 	// Without this, polecats finish implementation and sit at the prompt forever.
 	if ctx.Role == RolePolecat {
-		fmt.Printf("\n**IMPORTANT**: When all work is complete (code committed, tests pass), run `%s done` to submit to the merge queue.\n", cli.Name())
+		fmt.Printf("\n**IMPORTANT**: When all work is complete (code committed, tests pass), open your PR, then run `%s exit` (it pushes, closes your bead and ends the session).\n", cli.Name())
 	}
 }
 
@@ -845,12 +845,13 @@ func outputAutonomousDirective(ctx RoleContext, hookedBead *beads.Issue, hasMole
 		fmt.Println("3. Begin execution - no waiting for user input")
 	}
 
-	// Polecats MUST call gt done — this is the single most important instruction.
-	// Without it, work lands but sessions accumulate and the merge queue stalls.
+	// Polecats MUST call gt exit — without it, work lands but sessions accumulate
+	// and the reaper never reclaims the slot. gt done (merge queue + IDLE) is not
+	// used in this dispatch-and-kill fork (sbx-gastown-xg1fkp).
 	if ctx.Role == RolePolecat {
 		fmt.Println()
-		fmt.Printf("**⚠️ MANDATORY: When all work is committed, run `%s done` to submit and exit.**\n", cli.Name())
-		fmt.Printf("Do NOT stop at the prompt. Do NOT push to main directly. `%s done` is your final action.\n", cli.Name())
+		fmt.Printf("**⚠️ MANDATORY: When all work is committed, push your branch, open a PR, then run `%s exit`.**\n", cli.Name())
+		fmt.Printf("Do NOT stop at the prompt. Do NOT push to main directly. `%s exit` is your final action.\n", cli.Name())
 	}
 
 	fmt.Println()
@@ -863,8 +864,8 @@ func outputAutonomousDirective(ctx RoleContext, hookedBead *beads.Issue, hasMole
 		fmt.Println("- Skip molecule steps or work on the base bead directly")
 	}
 	if ctx.Role == RolePolecat {
-		fmt.Printf("- Sit idle after committing (run `%s done`)\n", cli.Name())
-		fmt.Println("- Push directly to main (use the merge queue)")
+		fmt.Printf("- Sit idle after opening your PR (run `%s exit`)\n", cli.Name())
+		fmt.Println("- Push directly to main (open a PR; the mayor reviews and merges)")
 	}
 	fmt.Println()
 }
@@ -933,7 +934,7 @@ func outputMoleculeWorkflow(ctx RoleContext, attachment *beads.AttachmentFields)
 		fmt.Println()
 		fmt.Printf("%s\n", style.Bold.Render("Work through ALL steps above, including submit and cleanup."))
 		fmt.Println("The base bead is your assignment. The formula steps define your workflow.")
-		fmt.Printf("\n%s\n", style.Bold.Render("REQUIRED: When all steps complete, run `"+cli.Name()+" done` to submit to the merge queue. Do NOT stop after implementation — the formula has submit steps you must follow."))
+		fmt.Printf("\n%s\n", style.Bold.Render("REQUIRED: When all steps complete, run `"+cli.Name()+" exit` (after the PR is open). Do NOT stop after implementation — the formula has submit steps you must follow."))
 		return
 	}
 
@@ -948,7 +949,7 @@ func outputMoleculeWorkflow(ctx RoleContext, attachment *beads.AttachmentFields)
 // Ralph mode is designed for long, iterative workflows (e.g., quality improvement
 // loops) that benefit from committing progress incrementally. The agent works
 // through formula steps iteratively, committing after each meaningful change,
-// and calls gt done when all acceptance criteria are met or no further progress
+// and calls gt exit when all acceptance criteria are met or no further progress
 // can be made.
 func outputRalphLoopDirective(ctx RoleContext, attachment *beads.AttachmentFields) {
 	fmt.Printf("%s\n\n", style.Bold.Render("## RALPH LOOP MODE (ITERATIVE WORKFLOW)"))
@@ -975,7 +976,7 @@ func outputRalphLoopDirective(ctx RoleContext, attachment *beads.AttachmentField
 	fmt.Println("2. Commit after each meaningful change (preserve progress via git)")
 	fmt.Println("3. After completing a pass, evaluate results against acceptance criteria")
 	fmt.Println("4. If criteria not met, loop: identify the worst gap, fix it, commit, re-evaluate")
-	fmt.Println("5. When all criteria are met (or no further progress possible), run `" + cli.Name() + " done`")
+	fmt.Println("5. When all criteria are met (or no further progress possible), push, open a PR, and run `" + cli.Name() + " exit`")
 	fmt.Println()
 	fmt.Printf("%s\n", style.Bold.Render("Commit frequently. Each commit preserves your progress."))
 }

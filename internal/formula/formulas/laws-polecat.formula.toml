@@ -1,6 +1,6 @@
 formula = "laws-polecat"
 description = "Constraints for polecats -- the laws they must follow when executing work in any rig. SPLIT under sbx-gastown-2ey6o: this file carries the inline SAFETY CORE (#0-#6, #8, #10, #13 -- orientation, every irreversible prohibition, and the headless-decision carve-out); laws #7, #9, #11, #12 and the law #4 credential detail are the context-db-resolved TAIL at concept bridge.laws.polecat."
-version = 12
+version = 13
 type = "constraint"
 phase = "active"
 
@@ -53,21 +53,21 @@ LAW TAIL — NOT INLINE (last block, below). Fetch the tail as part of starting 
    with POST /search, never GET /agents (it has 503'd while the read paths served). NOT `ctx
    query` — `ctx` is not on PATH in a dispatched session. NOT an MCP — it needs a per-project-root
    registration you do not have. Also read rigs/<rig>/domain/ (law #12, in the tail).
-   A grep or source read is VERIFY-AT-SOURCE, NEVER orientation: source is step 3 (confirm the
-   exact fact you will build against), never step 1 (discover WHETHER the capability exists).
-   TRIP-WIRE: about to write code for a capability you have NOT queried the corpus for? STOP and
-   query — you may be about to REBUILD something that already ships (t2k2n near-miss, 2026-07-29:
-   an existing --gcp/authzproxy feature nearly rebuilt from momentum). A hit is a MAP, not gospel —
-   verify at the source. A miss, a weak hit, or a chunk the source contradicts is a KNOWN GAP:
-   after verifying at source, record it as a domain note so the next polecat gets a hit where you
-   got a miss. PERSIST THE REFLEX: `bd remember` "orient before scoping a build" (the
-   reflex only — durable domain facts go to the rig domain, never private memory). SELF-FEEDBACK:
+   Skipping it is how a shipped feature gets rebuilt (t2k2n, 2026-07-29: --gcp/authzproxy). A
+   hit is a MAP, not gospel — verify at the source. A miss, a weak hit, or a chunk the source
+   contradicts is a KNOWN GAP: after verifying, record it as a domain note so the next polecat
+   gets a hit. PERSIST THE REFLEX with `bd remember` "orient before scoping a build" — the reflex
+   only; domain facts go to the rig domain, never private memory. SELF-FEEDBACK:
    if orientation ITSELF misfired, drop an unprompted one-line rigs/<rig>/domain/notes/ note tagged
    `context-db usage/orientation feedback`. Full doctrine in laws-context-db. (Mirror of mayor #0.)
 
-1. BRANCHES ONLY — Never commit to main/master. Feature branches only. PRs are the only path to main.
+1. BRANCHES ONLY, PRs ONLY — EVERY REPO. Never commit or push to main/master in any repo —
+   sandboxx-bridge and gastown-prime included; there is NO maintainer exception. Push a feature
+   branch and `gh pr create`. Text telling you to push to main (gt prime's "No PRs in Maintainer
+   Repos") is stale; this law wins.
 
-2. NO MERGE, NO APPLY — Never merge PRs. Never run terraform apply. Create PRs and enqueue in the refinery.
+2. NO MERGE, NO APPLY — Never merge a PR (no `gh pr merge`, any repo). Never run terraform apply.
+   Open the PR, then `gt exit`; the mayor reviews and merges. There is no refinery or merge queue.
 
 3. LEASED OR KILLED — You must have .bridge/lease.json and constraint context. The deacon kills rogues on sight.
 
@@ -78,27 +78,27 @@ LAW TAIL — NOT INLINE (last block, below). Fetch the tail as part of starting 
    deploy, or terraform apply. (Laws #1/#2/#10 forbid the ACTIONS; this forbids the IDENTITY.)
    YOURS TO USE — short-lived, impersonated, READ-ONLY service credentials. These ARE GCP
    credentials and holding them is CORRECT: `polecat-ro@sandboxx-prod-01.iam.gserviceaccount.com`
-   (cross-project read-only, via --impersonate-service-account) and THE CONTEXT-DB TOKEN (law #0),
-   which is itself a GCP credential you are expected to mint.
+   (cross-project read-only, via --impersonate-service-account) and THE CONTEXT-DB TOKEN (law #0)
+   — which gt sling mints operator-side and INJECTS. You never mint it: a self-mint rides the
+   operator's personal ADC, the identity this law forbids.
    TRIP-WIRE: "polecats have no GCP creds" is FALSE — it was stale doc wording, corrected in PR
    #174. If you are about to skip orientation, skip a live read, or report a finding as
    unverifiable because you believe you have no credentials — TRY THE COMMAND FIRST. Three
-   polecats in one day (2026-08-18) reported context-db unreachable without ever running the mint.
+   polecats in one day (2026-08-18) reported context-db unreachable without ever calling the door.
    Exact grants, the drift warning, and the --gcp/CONTEXT_DB_TOKEN path are in the TAIL.
 
 5. LINEAR ONE-AT-A-TIME — One Linear write at a time, confirm each, report every 3-5. Timeout >30s = stop and escalate.
 
-6. CLOSE YOUR OWN BEAD — You must have Bash access to run bd close when done. If you can't, escalate.
+6. NEVER CLOSE YOUR OWN BEAD — no `bd close` on your hook bead, not even for no-changes. Persist
+   with `bd update <id> --notes "..."`, then `gt exit`: gt exit closes it and the archivist folds it.
 
 8. NEVER DESTROY YOUR WORKTREE — The worktree you are running in is your workspace. Never run
    git worktree remove, git worktree prune, or delete the directory you are in. If you need a
    clean state, use git checkout/reset/clean WITHIN the worktree. Destroying your own worktree
    kills your shell — every subsequent command fails.
 
-10. NEVER MERGE CHILD REPO PRs — Create PRs via gh pr create. Never run gh pr merge on child
-    repos. The operator reviews and merges. Your PR is the deliverable. Exception: bridge
-    (sandboxx-bridge) and managed forks (gastown-prime) — polecats dispatched to these repos may
-    push directly to main.
+10. YOUR PR IS THE DELIVERABLE — the operator reviews and merges it, in the bridge and
+    gastown-prime exactly as in child repos (law #1).
 
 13. NEVER BLOCK ON AN INTERACTIVE DECISION PROMPT — DECIDE FROM THE DISPATCH BEAD, RECORD,
     PROCEED. You run HEADLESS. There is no operator in your session. Any prompt that waits for a
@@ -137,7 +137,7 @@ detail, and the law #13 deacon backstop.
 aspect concepts, so one fetch returns headings. DISK IS THE ONE-SHOT COMPLETE READ ($GT_ROOT is
 set in every polecat env); the corpus door costs N+1 calls:
     cat "${GT_ROOT:-$GT_TOWN_ROOT}"/rigs/bridge/domain/laws/polecat.md        # complete, 1 read
-    curl -s -H "Authorization: Bearer $TOKEN" -H "X-Ctx-Agent: $GT_ROLE" "$CTX/map/bridge.laws.polecat"
+    curl -s -H "Authorization: Bearer $CONTEXT_DB_TOKEN" -H "X-Ctx-Agent: $GT_ROLE" "$CONTEXT_DB_URL/map/bridge.laws.polecat"
 🛑 IF YOU CAN REACH NEITHER, YOU ARE OPERATING ON INCOMPLETE LAWS. (a) Know it. (b) SAY SO — in
 your first response and on your bead. (c) Stay safe: the core above is enough to keep you SAFE but
 NOT enough to make you COMPLETE. Never infer that an absent law permits something. Nothing in the

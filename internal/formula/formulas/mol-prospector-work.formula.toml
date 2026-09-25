@@ -150,9 +150,7 @@ exactly the surface worth your sweep. Works from any cwd: no bridge checkout, no
 dispatched session; that door is dead.)
 
 ```bash
-CTX=https://context-db-2hazwepeiq-uc.a.run.app
-TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
-        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+CTX="$CONTEXT_DB_URL"; TOKEN="$CONTEXT_DB_TOKEN"   # INJECTED by gt sling — never mint (laws-polecat #0/#4)
 
 # 1. orient — returns an INDEX per hit (summary + `##` outline), NOT bodies
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -163,7 +161,8 @@ curl -s -H "Authorization: Bearer $TOKEN" "$CTX/concept/<concept_id>"
 ```
 
 - Use `top_k`, NOT `limit` — `limit` is silently ignored.
-- Liveness probe is `GET /agents` → 200. `/healthz` is **404 by design**, not an outage.
+- `GET /agents` is **not** a liveness probe — it has 503'd while reads served (`sbx-gastown-yd4as`);
+  probe with `POST /search`. `/healthz` is **404 by design**, not an outage.
 - A hit is a **MAP, never the value** — verify at source (law #4 source-attribution).
 - **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — but treat it as a stopgap, not a
   substitute: the docs summarise, and expect to verify at source anyway. Never skip
@@ -184,7 +183,10 @@ bd update {{issue}} --notes "turn N: landscape read complete. Existing docs: <li
 **Exit criteria:** You know which file(s) you will author, what existing
 knowledge must be merged, and what superseded fragments will be deleted.
 
-When this step is complete, output the marker:
+When this step is complete, output the marker. (`STEP_COMPLETE` feeds the Go daemon's
+opt-in orchestrator patrol, `internal/daemon/orchestrator_patrol.go`, and is inert where that
+patrol is off — as in a town that runs no Go daemon. Emit it anyway: it costs one line and is
+the canary that proves `gt prime --hook` delivered the step body.)
 ```
 STEP_COMPLETE load-context
 ```"""
@@ -311,7 +313,7 @@ depth, not breadth (laws-prospector § 1).
    idempotency keys.
 6. Identify cross-rig edges: calls to other services, shared IDs, webhooks.
 
-**For each finding, capture in a working scratchpad:**
+**For each finding, record these fields** (the record you persist with `bd update --design` below):
 - The claim, one sentence.
 - The source: `file:line`.
 - Which section of the scaffold it belongs in.

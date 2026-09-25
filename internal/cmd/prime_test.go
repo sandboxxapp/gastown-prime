@@ -915,11 +915,12 @@ func TestCheckSlungWork_StandaloneFormulaUsesWorkflowOutput(t *testing.T) {
 	}
 }
 
-// TestCompactResumeReminder_PolecatGetsGtDone verifies that polecats get a
-// gt done reminder after context compaction. This is the regression test for
-// the polecats-no-gt-done bug: after long work sessions, compaction drops the
-// formula checklist and the agent forgets to call gt done.
-func TestCompactResumeReminder_PolecatGetsGtDone(t *testing.T) {
+// TestCompactResumeReminder_PolecatGetsGtExit verifies that polecats get a
+// gt exit reminder after context compaction. This is the regression test for
+// the polecats-never-exit bug: after long work sessions, compaction drops the
+// formula checklist and the agent forgets to call gt exit. The verb is gt exit,
+// never gt done — this fork has no merge queue (sbx-gastown-xg1fkp).
+func TestCompactResumeReminder_PolecatGetsGtExit(t *testing.T) {
 	ctx := RoleContext{Role: RolePolecat}
 	// Simulate compact source
 	primeHookSource = "compact"
@@ -929,14 +930,17 @@ func TestCompactResumeReminder_PolecatGetsGtDone(t *testing.T) {
 		runPrimeCompactResume(ctx)
 	})
 
-	if !strings.Contains(output, "gt done") {
-		t.Fatalf("compact/resume for polecat must remind about gt done, got:\n%s", output)
+	if !strings.Contains(output, "gt exit") {
+		t.Fatalf("compact/resume for polecat must remind about gt exit, got:\n%s", output)
+	}
+	if strings.Contains(output, "gt done") {
+		t.Fatalf("compact/resume for polecat must not direct gt done (no merge queue), got:\n%s", output)
 	}
 }
 
-// TestCompactResumeReminder_NonPolecatNoGtDone verifies that non-polecat roles
-// do NOT get the gt done reminder (it's polecat-specific).
-func TestCompactResumeReminder_NonPolecatNoGtDone(t *testing.T) {
+// TestCompactResumeReminder_NonPolecatNoGtExit verifies that non-polecat roles
+// do NOT get the gt exit reminder (it's polecat-specific).
+func TestCompactResumeReminder_NonPolecatNoGtExit(t *testing.T) {
 	ctx := RoleContext{Role: RoleCrew}
 	primeHookSource = "compact"
 	defer func() { primeHookSource = "" }()
@@ -945,8 +949,8 @@ func TestCompactResumeReminder_NonPolecatNoGtDone(t *testing.T) {
 		runPrimeCompactResume(ctx)
 	})
 
-	if strings.Contains(output, "gt done") {
-		t.Fatalf("compact/resume for non-polecat should NOT mention gt done, got:\n%s", output)
+	if strings.Contains(output, "gt exit") || strings.Contains(output, "gt done") {
+		t.Fatalf("compact/resume for non-polecat should NOT carry the polecat exit reminder, got:\n%s", output)
 	}
 }
 
@@ -973,8 +977,8 @@ func TestOutputRalphLoopDirective_NoSlashCommand(t *testing.T) {
 	if !strings.Contains(output, "RALPH LOOP MODE") {
 		t.Fatalf("expected 'RALPH LOOP MODE' header, got:\n%s", output)
 	}
-	if !strings.Contains(output, "gt done") {
-		t.Fatalf("expected 'gt done' instruction for completion, got:\n%s", output)
+	if !strings.Contains(output, "gt exit") {
+		t.Fatalf("expected 'gt exit' instruction for completion, got:\n%s", output)
 	}
 	if !strings.Contains(output, "Commit frequently") {
 		t.Fatalf("expected commit guidance, got:\n%s", output)

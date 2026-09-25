@@ -29,14 +29,14 @@ var exitCmd = &cobra.Command{
 Lightweight alternative to gt done for the dispatch-and-kill model:
 1. Auto-commits any uncommitted work (safety net)
 2. Pushes branch to origin
-3. Persists a completion note to the bead
-4. Exits — the daemon reaper handles the rest
+3. Persists a completion note to the bead and a findings note for the archivist
+4. Closes the bead (the polecat never runs bd close itself)
+5. Exits — the reaper handles the rest
 
 Does NOT:
 - Submit to merge queue (no MR beads)
 - Notify witnesses (we don't use them)
 - Transition to IDLE (polecats are fire-and-forget)
-- Close the bead (archivist does this)
 
 Examples:
   gt exit                              # Auto-save, push, exit

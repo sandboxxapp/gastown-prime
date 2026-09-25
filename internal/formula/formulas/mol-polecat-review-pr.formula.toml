@@ -36,7 +36,7 @@ times on 2026-08-11. `gt exit` is what every other bridge role formula uses.
 beads created from it. Use `bd mol current` to find them - do NOT read this file directly.
 
 **You do NOT:**
-- Merge the PR yourself (maintainer or Refinery does that)
+- Merge the PR yourself (the mayor/operator does that)
 - Push to the PR branch (it's external)
 - Wait for contributor response (you're done after review)
 - Close your own bead (the archivist closes it after knowledge extraction)
@@ -58,7 +58,7 @@ beads created from it. Use `bd mol current` to find them - do NOT read this file
 | Findings that do not block the merge | APPROVE + followup beads, ids in the verdict line |
 | Unclear requirements | Mail Witness for guidance |"""
 formula = "mol-polecat-review-pr"
-version = 8
+version = 9
 
 [[steps]]
 id = "load-context"
@@ -123,7 +123,7 @@ the **context-db agent door**. Works from any cwd: no bridge checkout, no
 `gcloud run services proxy`, no MCP. (Do NOT use `ctx query` — `ctx` is not on PATH in a
 dispatched session; that door is dead.)
 
-The full recipe — mint, `POST /search`, `GET /map`, section-scoped `GET /concept`, the filter
+The full recipe — the injected token, `POST /search`, `GET /map`, section-scoped `GET /concept`, the filter
 vocabulary, and the `POST /notes` write-back — is written once in
 `formula-overlays/shared/context-db-door.md` and injected at prime time by the town overlay.
 
@@ -141,14 +141,13 @@ vocabulary, and the `POST /notes` write-back — is written once in
 If the block is not in your primed context, the always-current contract is one call away:
 
 ```bash
-CTX=https://context-db-2hazwepeiq-uc.a.run.app
-TOKEN=$("${GT_ROOT:-$GT_TOWN_ROOT}"/context-db/scripts/mint-ctx-token.sh --url "$CTX" 2>/dev/null \
-        || gcloud auth print-identity-token)   # fallback: NO --audiences (a user ADC cannot scope one)
+CTX="$CONTEXT_DB_URL"; TOKEN="$CONTEXT_DB_TOKEN"   # INJECTED by gt sling — never mint (laws-polecat #0/#4)
 curl -s -H "Authorization: Bearer $TOKEN" "$CTX/agents"   # the baked AGENTS.md doctrine
 ```
 
-`GET /agents` → 200 is the liveness probe; `/healthz` is **404 on the *.run.app URL by
-design**, not an outage. **Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — a stopgap,
+`GET /agents` is **not** a liveness probe — it has 503'd while reads served (`sbx-gastown-yd4as`);
+probe with `POST /search`. `/healthz` is **404 on the *.run.app URL by design**, not an outage.
+**Unreachable?** Fall back to `rigs/$GT_RIG/domain/` — a stopgap,
 never a licence to skip orientation and go straight to the diff.
 
 Orientation only: a concept tells you where to LOOK, not what's true now — confirm any
@@ -442,25 +441,29 @@ head -1 /tmp/gastown-review-{{issue}}.md
 It must carry one of the three verdict tokens and a `followups:` field. If it
 does not, fix the file — do not post and explain in prose.
 
-## 2. Determine identity (KbotSB preferred, operator fallback)
+## 2. Determine identity — post as KbotSB
 
-The review-bot identity is **KbotSB** (`mayor/credentials/kbotsb.token`). Prefer it
-when it authenticates AS the bot. But as of this writing KbotSB authenticates as the
-OPERATOR, not the bot (escalation sbx-gastown-tzpay) — so the genuine bot path is often
-unavailable. Resolve BOTH the active identity and the PR's author before deciding how
-to post:
+The review identity is **KbotSB** (`mayor/credentials/kbotsb.token`, measured live
+2026-09-25). Resolve BOTH the reviewer and the PR's author before posting:
 
 ```bash
-gh auth status                                          # the logged-in account for the active token
-ME=$(gh api user -q .login)                             # the authenticated reviewer (KbotSB, or operator fallback)
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"
+ME=$(GH_TOKEN="$(cat "$KB")" gh api user -q .login)      # the reviewer identity: KbotSB
 PR_AUTHOR=$(gh pr view {{pr_url}} --json author -q .author.login)
 ```
 
-- **Bot path** — the active identity IS the KbotSB bot account.
-- **Fallback (operator identity)** — the active identity is the operator (the tzpay
-  state), or KbotSB is otherwise unavailable: post the review CONTENT via
-  `gh pr comment` under whatever identity is available. Operator-identity comments
-  are **explicitly acceptable** as the interim behavior until the KbotSB fix lands.
+**Post the review as KbotSB.** Why: a review posted as KbotSB lands as a FORMAL GitHub
+review (APPROVED / CHANGES_REQUESTED). A non-author account can set review state; the
+operator's own account cannot on the PRs it authors. Review state is what PR status
+tooling reads (`reviewDecision`, branch protection, `gh pr status` / checks) — a
+`--comment` verdict is invisible to those tools. Put the credential ON each `gh` call
+(`GH_TOKEN="$(cat "$KB")" gh …`): shell state, an `export` included, does not survive
+to your next tool call. If `ME` does not come back `KbotSB`, post under ambient auth
+and say so in the body.
+
+> ⚠️ A KbotSB review is NOT auto-picked-up by the deacon's foreman dispatch (`"KbotSB"`
+> is in `DENY_BOT_LOGINS`, `rigs/deacon/foreman.py`). The mayor dispatches foreman
+> rounds by hand.
 
 Either way, the content comment gets posted. There is no branch where the PR
 receives nothing.
@@ -468,33 +471,33 @@ receives nothing.
 ## 3. Post the content comment (ALWAYS)
 
 ```bash
-gh pr comment {{pr_url}} --body-file /tmp/gastown-review-{{issue}}.md
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"   # re-set: a new tool call
+GH_TOKEN="$(cat "$KB")" gh pr comment {{pr_url}} --body-file /tmp/gastown-review-{{issue}}.md
 ```
 
-This is the mandatory deliverable and runs on BOTH the bot path and the fallback.
+This is the mandatory deliverable, whichever identity posts it.
 
-**Formal review STATE — gated on authorship, not on the bot path.** GitHub blocks
-`--approve` / `--request-changes` in exactly one case: the reviewing account AUTHORED
-the PR. So the gate is `ME` vs `PR_AUTHOR` from step 2, and it applies on the bot path
-and the operator fallback alike:
+**Formal review STATE — gated on authorship.** GitHub blocks `--approve` /
+`--request-changes` in exactly one case: the reviewing account AUTHORED the PR. So the
+gate is `ME` vs `PR_AUTHOR` from step 2:
 
 ```bash
 # ME != PR_AUTHOR — submit a FORMAL verdict. Do this; do NOT default to --comment:
-gh pr review {{pr_url}} --approve         --body-file /tmp/gastown-review-{{issue}}.md   # APPROVE
-gh pr review {{pr_url}} --request-changes --body-file /tmp/gastown-review-{{issue}}.md   # REQUEST_CHANGES
-gh pr review {{pr_url}} --comment         --body-file /tmp/gastown-review-{{issue}}.md   # NEEDS_DISCUSSION
+GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --approve         --body-file /tmp/gastown-review-{{issue}}.md   # APPROVE
+GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --request-changes --body-file /tmp/gastown-review-{{issue}}.md   # REQUEST_CHANGES
+GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --comment         --body-file /tmp/gastown-review-{{issue}}.md   # NEEDS_DISCUSSION
 ```
 
 Most PRs are authored by someone else, so an APPROVE should be an explicit
-`--approve` — not a comment. The refinery enforces `require_review=true` and will NOT
-merge a PR that has no approving review, so downgrading a genuine approval to a
-`--comment` silently strands the PR.
+`--approve` — not a comment. Downgrading a genuine approval to a `--comment` leaves
+the PR with no approving review state for the tooling that reads it.
 
 > ⚠️ **`ME == PR_AUTHOR` — self-authored fallback.** GitHub rejects self-approval, so
 > do NOT run `--approve` / `--request-changes`. The `gh pr comment` post from step 3 is
 > your complete deliverable; optionally add `gh pr review --comment` carrying the same
-> body. This is common when KbotSB is down and reviews run under the operator identity
-> on an operator-authored PR — and it is the one case where the PR gets no formal state.
+> body. This happens when KbotSB is unavailable and the review runs under the
+> operator's ambient identity on an operator-authored PR — and it is the one case
+> where the PR gets no formal state.
 
 ## 4. Record the verdict on the tracking bead (backstop — ALWAYS)
 
@@ -502,7 +505,7 @@ Independently of the PR post, always record the verdict on {{issue}} so it survi
 even if the PR post fails:
 
 ```bash
-bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Followups: <bead ids, or none>. Identity: <kbotsb-bot|operator-fallback>."
+bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Followups: <bead ids, or none>. Identity: <ME login>."
 ```
 
 **Exit criteria:** The full review CONTENT is a comment on the PR (verified with
@@ -619,14 +622,17 @@ domain knowledge from your findings. An open bead is not an unfinished job.
 
 - The daemon reaper reclaims your worktree and session
 - The archivist extracts your findings, then closes the bead
-- Maintainer or Refinery acts on your review
+- The mayor acts on your review (merge, or dispatch a foreman)
 
 You are NOT involved in any of that. You're gone. Done means gone.
 
 **Exit criteria:** findings verified present in `bd show {{issue}} --notes`,
 `git log @{u}..HEAD` empty, `gt exit` run.
 
-When this step is complete, output the marker:
+When this step is complete, output the marker. (`STEP_COMPLETE` feeds the Go daemon's
+opt-in orchestrator patrol, `internal/daemon/orchestrator_patrol.go`, and is inert where that
+patrol is off — as in a town that runs no Go daemon. Emit it anyway: it costs one line and is
+the canary that proves `gt prime --hook` delivered the step body.)
 ```
 STEP_COMPLETE complete-and-exit
 ```"""
