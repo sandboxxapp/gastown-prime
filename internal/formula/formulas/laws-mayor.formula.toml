@@ -12,6 +12,12 @@
 #    orientation and for laws whose violation is IRREVERSIBLE.
 #    Enforced by scripts/check-laws-cap.sh — this is now a gate, not a comment.
 #
+# v10 (2026-10-14, sbx-gastown-wz315p): law #0's "Two doors" now makes the TOKEN GATE the
+#   mayor's DEFAULT door. The MCP works on some logins only: the operator is often on a personal
+#   Claude account that the domain gate refuses, and the launcher's token expires after ~1 h with
+#   no refresh (sbx-gastown-ywxkk). So an MCP error means "use the gate", never "the corpus is
+#   down". Operator, 2026-10-14. Summary 8,981 -> 8,980 chars. Same edit in the gt embed.
+#
 # v9r (2026-08-20, sbx-gastown-wxx0q — PR #183 foreman round): the two v9 entries below
 #   landed on DIVERGENT branches and this file was the ONE merge conflict. Resolved as a
 #   UNION, not a pick — law #1a is kept BYTE-IDENTICAL to #178's text (its own entry says
@@ -73,7 +79,7 @@
 #   true both before and after the deletion, so step 9.3 needs no edit to this file.
 formula = "laws-mayor"
 description = "Constraints for the mayor — coordination, dispatch, and oversight rules. SPLIT under sbx-gastown-2ey6o: this file carries the inline SAFETY CORE (#0-#3, #1a, the binding rule of #4/#5, and #8-#13); the detail behind #4, #5, #5b, #6, #7, #12 and #13 is the context-db-resolved TAIL at concept bridge.laws.mayor."
-version = 9
+version = 10
 type = "constraint"
 phase = "active"
 
@@ -93,9 +99,9 @@ NOT INLINE (last block). Resolve it early; you are not fully briefed until you h
    dispatch/review mechanics, AND YOUR OWN LAW TAIL — resolves ON DEMAND. You CANNOT operate
    correctly on the abbreviated view alone, so confirming the corpus is reachable is the FIRST
    thing every session; if it is unreachable, restoring it is your first action, before patrol and
-   before any dispatch. Two doors: the MCP (search_corpus / get_concept / get_map / get_doctrine —
-   HEADERS-FIRST: search_corpus=INDEX per hit, get_concept=body on demand), or the TOKEN GATE the
-   agents you dispatch use — recipe in the TAIL block.
+   before any dispatch. Two doors: the TOKEN GATE (YOUR DEFAULT; recipe in the TAIL block) or
+   the MCP (search_corpus / get_concept, HEADERS-FIRST), which works on some logins only. An
+   MCP error means use the gate, never that the corpus is down.
    ORIENT BEFORE YOU SCOPE A DISPATCH, NOT JUST BEFORE YOU READ SOURCE. Your sharpest failure mode
    is scoping a BUILD or DISPATCH from momentum ("this is obviously new work") and sending a
    polecat to REBUILD a capability that already exists and is already documented. A grep or source
