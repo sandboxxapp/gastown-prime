@@ -434,8 +434,11 @@ func (m *SessionManager) Start(polecat string, opts SessionStartOptions) error {
 	// Wait for Claude to start (non-fatal)
 	debugSession("WaitForCommand", m.tmux.WaitForCommand(sessionID, constants.SupportedShells, constants.ClaudeStartTimeout))
 
-	// Accept startup dialogs (workspace trust + bypass permissions) if they appear
-	debugSession("AcceptStartupDialogs", m.tmux.AcceptStartupDialogs(sessionID))
+	// Accept startup dialogs (workspace trust + bypass permissions) if they appear.
+	// Always reported: a refused trust dialog leaves the session parked at it.
+	if err := m.tmux.AcceptStartupDialogs(sessionID); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: accepting startup dialogs for %s: %v\n", sessionID, err)
+	}
 
 	// Wait for runtime to be fully ready at the prompt (not just started).
 	// Uses prompt-based polling for agents with ReadyPromptPrefix (e.g., Claude "❯ "),
