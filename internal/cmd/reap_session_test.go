@@ -5,11 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"syscall"
 	"testing"
 	"time"
 
 	"github.com/steveyegge/gastown/internal/tmux"
+	"github.com/steveyegge/gastown/internal/util"
 )
 
 // TestReapSession_KillsTmuxSession verifies that `gt _reap-session` kills the
@@ -134,12 +134,10 @@ func TestDefaultScheduleSelfTerminate_ChildOutlivesParent(t *testing.T) {
 	cmd.Stdin = nil
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	// NOTE: production uses Setpgid+Setsid via util.SetDaemonProcessGroup.
-	// macOS rejects Setsid with EPERM when the caller is already a session
-	// leader (as `go test` is), so this test uses Setpgid only. That still
-	// exercises the pattern the bug requires: an out-of-process child that
-	// is not a Go goroutine inside the original `gt` process.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	// Use the production helper, not a hand-built SysProcAttr: a stand-in
+	// here hid that SetDaemonProcessGroup's Setpgid+Setsid failed every
+	// Start with EPERM (sbx-gastown-slvou6).
+	util.SetDaemonProcessGroup(cmd)
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start detached reaper: %v", err)
