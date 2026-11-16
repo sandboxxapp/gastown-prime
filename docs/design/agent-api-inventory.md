@@ -524,9 +524,17 @@ returns allow/deny with reason
   - AMP: `--dangerously-allow-all --no-ide`
   - OpenCode: env `OPENCODE_PERMISSION={"*":"allow"}`
   - Copilot: `--yolo`
-- `internal/tmux/tmux.go` — `AcceptBypassPermissionsWarning()` (line ~1509):
+- `internal/tmux/tmux.go` — `AcceptBypassPermissionsWarning()`:
   polls for "Bypass Permissions mode" dialog, sends Down+Enter;
-  `DismissStartupDialogsBlind()` (line ~1558): blind key sequence fallback
+  `AcceptWorkspaceTrustDialog()`: polls for the workspace trust dialog, then
+  moves the cursor to the accepting option by its text ("Yes, I trust this
+  folder"; Codex "Yes, continue") and presses Enter only once a capture shows
+  the cursor on it. It refuses (returns an error, no keypress) if no accepting
+  option is shown. Claude Code lists "No, exit" first and pre-selects it
+  (2.1.282 and 2.1.325), so Enter on the pre-selection exits the session;
+  `DismissStartupDialogsBlind()`: blind key sequence fallback for the bypass
+  warning; for the trust dialog it takes one capture and uses the same
+  verified selection
 
 **Flow**: GT→Agent (at startup). Always-on, no per-role granularity.
 
@@ -534,6 +542,9 @@ returns allow/deny with reason
 - 10 different flag names across 10 agents — each is a different string
 - All-or-nothing: no per-role permission granularity
 - Claude's permission warning dialog detection depends on exact text
+- Workspace trust acceptance depends on the exact accepting-option label and
+  the select cursor glyph ("❯" / "›"); an unrecognised label is refused, which
+  parks the session at the dialog rather than exiting it
 - No opt-out — every agent runs with full bypass
 
 **API mapping**: `POST /authorize` — per-call authorization with role-based rules

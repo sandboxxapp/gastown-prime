@@ -465,8 +465,11 @@ func ensureAgentReady(sessionName string) error {
 		}
 	}
 
-	// Accept startup dialogs (workspace trust + bypass permissions) if they appear
-	_ = t.AcceptWorkspaceTrustDialog(sessionName)
+	// Accept startup dialogs (workspace trust + bypass permissions) if they appear.
+	// Reported: a refused trust dialog leaves the session parked at it.
+	if err := t.AcceptWorkspaceTrustDialog(sessionName); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: workspace trust dialog for %s: %v\n", sessionName, err)
+	}
 	agentName, _ := t.GetEnvironment(sessionName, "GT_AGENT")
 	if shouldAcceptPermissionWarning(agentName) {
 		_ = t.AcceptBypassPermissionsWarning(sessionName)

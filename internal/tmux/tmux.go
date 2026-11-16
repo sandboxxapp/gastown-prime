@@ -1835,16 +1835,23 @@ func (t *Tmux) AcceptStartupDialogs(session string) error {
 	return nil
 }
 
-// AcceptWorkspaceTrustDialog dismisses workspace trust dialogs for supported
+// AcceptWorkspaceTrustDialog accepts workspace trust dialogs for supported
 // agents. Claude shows "Quick safety check"; Codex shows
-// "Do you trust the contents of this directory?". In both cases the safe
-// continue option is pre-selected, so Enter accepts the dialog.
+// "Do you trust the contents of this directory?".
+//
+// The accepting option is selected by its text, never by position: Claude Code
+// (2.1.282 and 2.1.325 alike) lists "No, exit" FIRST and pre-selects it, so an
+// Enter on the pre-selection exits the session. The cursor is moved to the
+// accepting option and verified there before Enter is sent (see
+// selectTrustAcceptOption). If the dialog is shown but no accepting option is
+// found, nothing is pressed and an error is returned.
 //
 // Uses a polling loop instead of a single check to handle the race condition where
 // the agent hasn't rendered the dialog yet when we first check. Exits early if the
 // agent prompt appears (indicating no dialog will be shown).
 func (t *Tmux) AcceptWorkspaceTrustDialog(session string) error {
 	deadline := time.Now().Add(constants.DialogPollTimeout)
+	sawDialog := false
 	for time.Now().Before(deadline) {
 		content, err := t.CapturePane(session, 30)
 		if err != nil {
@@ -1856,13 +1863,13 @@ func (t *Tmux) AcceptWorkspaceTrustDialog(session string) error {
 		// Codex trust screens include a leading ">" banner line, so prompt
 		// detection alone would exit too early.
 		if containsWorkspaceTrustDialog(content) {
-			// Dialog found — accept it (option 1 is pre-selected, just press Enter)
-			if _, err := t.run("send-keys", "-t", session, "Enter"); err != nil {
-				return err
+			sawDialog = true
+			if found, _ := trustAcceptOptionState(content); found {
+				return t.selectTrustAcceptOption(session, content)
 			}
-			// Wait for dialog to dismiss before proceeding
-			time.Sleep(500 * time.Millisecond)
-			return nil
+			// Dialog text is up but its options are not (yet) visible.
+			time.Sleep(constants.DialogPollInterval)
+			continue
 		}
 
 		// Early exit: if agent prompt or shell prompt is visible, no trust dialog will appear.
@@ -1875,6 +1882,9 @@ func (t *Tmux) AcceptWorkspaceTrustDialog(session string) error {
 		time.Sleep(constants.DialogPollInterval)
 	}
 
+	if sawDialog {
+		return errTrustAcceptOptionNotFound
+	}
 	// Timeout — no dialog detected, safe to proceed
 	return nil
 }
@@ -1883,6 +1893,106 @@ func containsWorkspaceTrustDialog(content string) bool {
 	return strings.Contains(content, "trust this folder") ||
 		strings.Contains(content, "Quick safety check") ||
 		strings.Contains(content, "Do you trust the contents of this directory?")
+}
+
+// trustAcceptLabels are the accepting options of the supported workspace trust
+// dialogs. The declining options ("No, exit", "No, continue without these
+// permissions", Codex "No, quit") are deliberately absent.
+var trustAcceptLabels = []string{
+	"Yes, I trust this folder", // Claude Code
+	"Yes, continue",            // Codex
+}
+
+// selectCursors are the glyphs a TUI select list prints before its focused
+// option: Claude Code (Ink) uses "❯", Codex (ratatui) uses "›".
+var selectCursors = []string{"❯", "›", ">"}
+
+// trustCursorMaxMoves bounds the Down presses spent looking for the accepting
+// option. Claude's dialog has two options, so one press reaches it.
+const trustCursorMaxMoves = 3
+
+// trustCursorSettle is how long to wait for the TUI to redraw the cursor after
+// a Down press before pressing Down again.
+const trustCursorSettle = 2 * time.Second
+
+var errTrustAcceptOptionNotFound = fmt.Errorf(
+	"workspace trust dialog is shown but no accepting option (%q) was found; refusing to press Enter, which may select \"No, exit\"",
+	trustAcceptLabels)
+
+// trustAcceptOptionState reports whether captured pane content shows a trust
+// dialog's accepting option (found) and whether the select cursor is on it
+// (focused).
+func trustAcceptOptionState(content string) (found, focused bool) {
+	for _, line := range strings.Split(content, "\n") {
+		if !containsAnyOf(line, trustAcceptLabels) {
+			continue
+		}
+		found = true
+		// Strip indentation and a box border before looking for the cursor.
+		trimmed := strings.TrimLeft(line, " \t│|")
+		for _, cursor := range selectCursors {
+			if strings.HasPrefix(trimmed, cursor) {
+				focused = true
+			}
+		}
+	}
+	return found, focused
+}
+
+func containsAnyOf(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// selectTrustAcceptOption moves the select cursor onto the trust dialog's
+// accepting option and presses Enter only once a capture shows the cursor
+// there. content is the capture in which the dialog was detected.
+func (t *Tmux) selectTrustAcceptOption(session, content string) error {
+	for moves := 0; ; moves++ {
+		found, focused := trustAcceptOptionState(content)
+		if !found {
+			return errTrustAcceptOptionNotFound
+		}
+		if focused {
+			if _, err := t.run("send-keys", "-t", session, "Enter"); err != nil {
+				return err
+			}
+			// Wait for dialog to dismiss before proceeding
+			time.Sleep(500 * time.Millisecond)
+			return nil
+		}
+		if moves == trustCursorMaxMoves {
+			return fmt.Errorf("workspace trust dialog: cursor did not reach the accepting option after %d Down presses; not pressing Enter", moves)
+		}
+		if _, err := t.run("send-keys", "-t", session, "Down"); err != nil {
+			return err
+		}
+		content = t.waitForTrustAcceptFocus(session, content)
+	}
+}
+
+// waitForTrustAcceptFocus polls the pane until the cursor is on the accepting
+// option or trustCursorSettle elapses, and returns the last capture (prev if
+// no capture succeeded).
+func (t *Tmux) waitForTrustAcceptFocus(session, prev string) string {
+	deadline := time.Now().Add(trustCursorSettle)
+	last := prev
+	for {
+		time.Sleep(100 * time.Millisecond)
+		if content, err := t.CapturePane(session, 30); err == nil {
+			last = content
+			if _, focused := trustAcceptOptionState(content); focused {
+				return last
+			}
+		}
+		if !time.Now().Before(deadline) {
+			return last
+		}
+	}
 }
 
 // promptSuffixes are strings that indicate a shell or agent prompt is visible.
@@ -1953,26 +2063,33 @@ func (t *Tmux) AcceptBypassPermissionsWarning(session string) error {
 }
 
 // DismissStartupDialogsBlind sends the key sequences needed to dismiss all
-// known Claude Code startup dialogs without screen-scraping pane content.
-// This avoids coupling to third-party TUI strings that can change with any update.
+// known Claude Code startup dialogs, scraping the pane only for the workspace
+// trust dialog.
 //
 // The sequence handles (in order):
-//  1. Workspace trust dialog — Enter (option 1 "Yes, I trust this folder" is pre-selected)
+//  1. Workspace trust dialog — NOT blind. Claude Code pre-selects "No, exit",
+//     so a blind Enter there exits the session. One capture is taken; if the
+//     dialog is showing, the accepting option is selected by its text and
+//     verified before Enter (selectTrustAcceptOption). Otherwise nothing is sent.
 //  2. Bypass permissions warning — Down+Enter (select "Yes, I accept" then confirm)
 //
-// Safe to call on sessions where no dialog is showing: Enter sends a blank input
-// to an idle Claude prompt (harmless for a stalled session), and Down+Enter either
-// does nothing or sends another blank input.
+// Safe to call on sessions where no dialog is showing: Down+Enter either
+// does nothing or sends a blank input to an idle Claude prompt.
 //
 // This is intended for remediation of stalled sessions detected via structured
 // signals (session age + activity). For startup-time dialog handling where
 // precision matters, use AcceptStartupDialogs instead.
 func (t *Tmux) DismissStartupDialogsBlind(session string) error {
-	// Step 1: Send Enter to dismiss trust dialog (if present)
-	if _, err := t.run("send-keys", "-t", session, "Enter"); err != nil {
-		return fmt.Errorf("sending Enter for trust dialog: %w", err)
+	// Step 1: Accept the trust dialog (if present) by its accepting option.
+	content, err := t.CapturePane(session, 30)
+	if err != nil {
+		return fmt.Errorf("capturing pane for trust dialog: %w", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	if containsWorkspaceTrustDialog(content) {
+		if err := t.selectTrustAcceptOption(session, content); err != nil {
+			return fmt.Errorf("trust dialog: %w", err)
+		}
+	}
 
 	// Step 2: Send Down+Enter to dismiss bypass permissions dialog (if present)
 	if _, err := t.run("send-keys", "-t", session, "Down"); err != nil {

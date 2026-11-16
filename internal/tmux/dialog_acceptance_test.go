@@ -34,7 +34,9 @@ func TestAcceptWorkspaceTrustDialog_NoDialog(t *testing.T) {
 }
 
 // TestAcceptWorkspaceTrustDialog_DetectsDialog verifies that when trust dialog
-// text appears in the pane, it is detected and accepted (Enter key sent).
+// text appears in the pane with its accepting option focused, it is detected
+// and accepted (Enter key sent). A dialog with no accepting option is refused:
+// see TestAcceptWorkspaceTrustDialog_RefusesWithoutAcceptOption.
 func TestAcceptWorkspaceTrustDialog_DetectsDialog(t *testing.T) {
 	tm := newTestTmux(t)
 	sessionName := "gt-test-trust-dlg-" + t.Name()
@@ -46,7 +48,7 @@ func TestAcceptWorkspaceTrustDialog_DetectsDialog(t *testing.T) {
 	defer func() { _ = tm.KillSession(sessionName) }()
 
 	// Simulate the trust dialog by echoing its text into the pane
-	if err := tm.SendKeys(sessionName, "echo 'Quick safety check - do you trust this folder?'"); err != nil {
+	if err := tm.SendKeys(sessionName, "echo 'Quick safety check - do you trust this folder?'; echo '❯ Yes, I trust this folder'"); err != nil {
 		t.Fatalf("SendKeys: %v", err)
 	}
 	// Give the echo a moment to execute
@@ -73,7 +75,7 @@ func TestAcceptWorkspaceTrustDialog_DetectsCodexDialog(t *testing.T) {
 	}
 	defer func() { _ = tm.KillSession(sessionName) }()
 
-	if err := tm.SendKeys(sessionName, "echo '> You are in /tmp/demo'; echo 'Do you trust the contents of this directory?'"); err != nil {
+	if err := tm.SendKeys(sessionName, "echo '> You are in /tmp/demo'; echo 'Do you trust the contents of this directory?'; echo '› 1. Yes, continue'"); err != nil {
 		t.Fatalf("SendKeys: %v", err)
 	}
 	time.Sleep(300 * time.Millisecond)
