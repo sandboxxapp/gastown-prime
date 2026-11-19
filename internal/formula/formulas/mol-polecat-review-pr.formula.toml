@@ -349,23 +349,34 @@ every followup bead is FILED and you are holding its id."""
 
 [[steps]]
 id = "submit-review"
-title = "Post the review content to the PR (and record on the bead)"
+title = "Post the review to the PR ONCE (and record on the bead)"
 needs = ["make-decision"]
 description = """
 Your review verdict is worthless if a maintainer can't see it. The deliverable of
-this step is a **comment ON THE PR** carrying the full substance of your review —
+this step is **ONE post ON THE PR** carrying the full substance of your review —
 not a one-line approval stamp, and not only a note buried on the tracking bead.
 
 > **The rule:** the review CONTENT must reach the PR. Always. Recording it on the
 > bead is a backstop, not a substitute. NEVER silently skip the PR post.
 
-## 1. Assemble the review comment body
+> 🛑 **ONE post, never two (sbx-gastown-2rlv97).** The verdict goes on the PR exactly
+> once: a FORMAL review when you did not author the PR, a `gh pr comment` when you
+> did (step 3). Never both. Every review used to land twice — a `gh pr comment` and
+> then a formal `gh pr review` with the same body — doubling the heaviest part of
+> each PR page (SAM #38 carried 97k characters of review and comment text). Every
+> reader of the verdict (the mayor, the foreman's `load-context`, the deacon's
+> `foreman.py` and `reaper.py`) reads reviews AND comments, so either place is found.
+> Operator, 2026-11-19: "we only need 1 comment either the formal review if that
+> works based on the subjects or the comment if not".
+
+## 1. Assemble the review body
 
 ### The FIRST LINE is the verdict. It is a contract, not a header.
 
-The mayor decides merge-or-foreman off the top of your comment. Anything that
+The mayor decides merge-or-foreman off the top of your review. Anything that
 makes that line ambiguous costs a wasted dispatch. So line 1 — the very first
-line of the comment body, before any prose — is exactly this shape:
+line of the review body, before any prose — is exactly this shape, whichever
+way step 3 posts it:
 
 ```
 🤖 Gastown review — <VERDICT> (tracking {{issue}}) — followups: <ids, comma-separated, or `none`>
@@ -390,19 +401,32 @@ Worked examples:
 
 ### The rest of the body
 
-Compose the full review content as markdown. Below that first line it MUST
-include, at minimum:
+Compose the full review content as markdown, in two parts: a SHORT summary
+that renders first, then the long detail inside ONE collapsed `<details>` block
+so the PR page shows the summary without the reader scrolling past evidence.
+
+**Above the fold** (after line 1, never collapsed — this is what a human acts on):
 
 - **Verdict:** repeated as its own section (the same token as line 1)
-- **Rationale:** why you reached that verdict — and on REQUEST_CHANGES, WHICH of
-  the four triggers from make-decision fired
-- **Per-finding detail:** each issue found, with file:line attribution and whether
-  it is blocking, a followup (with its bead id), or a question
+- **Rationale:** why you reached that verdict, in a few sentences — and on
+  REQUEST_CHANGES, WHICH of the four triggers from make-decision fired
+- **Blocking:** one line per blocking finding, with file:line (or `none`)
 - **Operator-decision items:** ANYTHING a maintainer must sign off on before merge
   (tradeoffs, scope calls, risk acceptance). Call these out explicitly under a
   clearly-labeled section — this is the part a human must act on.
-- **Test assessment:** CI status + whether coverage is adequate
+- Any section a town overlay tells the mayor or foreman to APPLY (for example a
+  `## BODY-ONLY replacements` section) also stays above the fold.
+
+**Inside `<details>`** (the long sections):
+
+- **Per-finding detail:** each issue found, with file:line attribution, evidence,
+  and whether it is blocking, a followup (with its bead id), or a question
+- **Test assessment:** CI status, the test runs you did and their output, and
+  whether coverage is adequate
 - **Follow-up beads:** the ids from line 1, each with its title
+
+GitHub renders markdown inside `<details>` only with a blank line after
+`</summary>` and before `</details>`. Keep both.
 
 Write the body to a file to avoid shell-quoting hazards with multi-line content:
 
@@ -416,19 +440,27 @@ REQUEST_CHANGES
 ## Rationale
 Trigger 3 fired: <why the guard cannot fail>.
 
+## Blocking
+- path/to/file.go:42 — <what must change, one line>
+
+## Operator decisions required
+- <thing the maintainer must sign off on before merge>   (or: none)
+
+<details>
+<summary>Findings detail, evidence and tests</summary>
+
 ## Findings
-- [BLOCKING] path/to/file.go:42 — <detail>
+- [BLOCKING] path/to/file.go:42 — <detail and evidence>
 - [FOLLOWUP sbx-gastown-a1b2c] path/to/other.go:17 — <detail>
 - [QUESTION] ...
 
-## Operator decisions required
-- <thing the maintainer must sign off on before merge>
-
 ## Tests
-<CI status + coverage assessment>
+<CI status, test runs and their output, coverage assessment>
 
 ## Follow-ups
 - <bead-id>: <title>   (or: none)
+
+</details>
 EOF
 ```
 
@@ -459,45 +491,64 @@ tooling reads (`reviewDecision`, branch protection, `gh pr status` / checks) —
 `--comment` verdict is invisible to those tools. Put the credential ON each `gh` call
 (`GH_TOKEN="$(cat "$KB")" gh …`): shell state, an `export` included, does not survive
 to your next tool call. If `ME` does not come back `KbotSB`, post under ambient auth
-and say so in the body.
+and say so in the body: re-resolve `ME` with `env -u GH_TOKEN gh api user -q .login`
+(the gate in step 3 compares whoever actually posts) and drop the `GH_TOKEN=` prefix
+from the post.
 
 > ⚠️ A KbotSB review is NOT auto-picked-up by the deacon's foreman dispatch (`"KbotSB"`
 > is in `DENY_BOT_LOGINS`, `rigs/deacon/foreman.py`). The mayor dispatches foreman
 > rounds by hand.
 
-Either way, the content comment gets posted. There is no branch where the PR
-receives nothing.
+Either way, the review gets posted. There is no branch where the PR receives
+nothing.
 
-## 3. Post the content comment (ALWAYS)
+## 3. Post the review — ONE post, gated on authorship
+
+**Pick exactly ONE of the two branches below. Never run both.** GitHub blocks
+`--approve` / `--request-changes` in exactly one case: the reviewing account AUTHORED
+the PR. So the gate is `ME` vs `PR_AUTHOR` from step 2:
+
+**`ME != PR_AUTHOR` (the normal case: KbotSB reviewing someone else's PR) — the
+FORMAL review is your one post.** Run the ONE line that matches your verdict, and
+post no `gh pr comment`:
+
+```bash
+KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"   # re-set: a new tool call
+GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --approve         --body-file /tmp/gastown-review-{{issue}}.md   # APPROVE
+GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --request-changes --body-file /tmp/gastown-review-{{issue}}.md   # REQUEST_CHANGES
+GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --comment         --body-file /tmp/gastown-review-{{issue}}.md   # NEEDS_DISCUSSION
+```
+
+An APPROVE is an explicit `--approve` — do NOT default to `--comment`. Review state
+is what PR status tooling reads; downgrading a genuine approval to a comment leaves
+the PR with no approving review state.
+
+**`ME == PR_AUTHOR` (the reviewing account authored the PR, for example a KbotSB-
+authored PR) — the COMMENT is your one post.** GitHub rejects self-approval, so do
+NOT run `--approve` / `--request-changes`, and do not add a `gh pr review --comment`
+carrying the same body:
 
 ```bash
 KB="${GT_TOWN_ROOT:-$GT_ROOT}/mayor/credentials/kbotsb.token"   # re-set: a new tool call
 GH_TOKEN="$(cat "$KB")" gh pr comment {{pr_url}} --body-file /tmp/gastown-review-{{issue}}.md
 ```
 
-This is the mandatory deliverable, whichever identity posts it.
+This is the one case where the PR gets no formal state.
 
-**Formal review STATE — gated on authorship.** GitHub blocks `--approve` /
-`--request-changes` in exactly one case: the reviewing account AUTHORED the PR. So the
-gate is `ME` vs `PR_AUTHOR` from step 2:
+**If the formal review is refused** (GitHub returns an error and nothing posted),
+post the same body with the `gh pr comment` line instead, and say why in the bead
+note. That is still one post. Check that the first attempt really posted nothing
+before you fall back (the check below), or the PR gets the review twice.
+
+**Check it landed exactly once.** Reviews and comments are separate lists, so count
+across both:
 
 ```bash
-# ME != PR_AUTHOR — submit a FORMAL verdict. Do this; do NOT default to --comment:
-GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --approve         --body-file /tmp/gastown-review-{{issue}}.md   # APPROVE
-GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --request-changes --body-file /tmp/gastown-review-{{issue}}.md   # REQUEST_CHANGES
-GH_TOKEN="$(cat "$KB")" gh pr review {{pr_url}} --comment         --body-file /tmp/gastown-review-{{issue}}.md   # NEEDS_DISCUSSION
+gh pr view {{pr_url}} --json reviews,comments --jq '[.reviews[], .comments[]] | map(select(.body | startswith("🤖 Gastown review") and contains("tracking {{issue}}"))) | length'
 ```
 
-Most PRs are authored by someone else, so an APPROVE should be an explicit
-`--approve` — not a comment. Downgrading a genuine approval to a `--comment` leaves
-the PR with no approving review state for the tooling that reads it.
-
-> ⚠️ **`ME == PR_AUTHOR` — self-authored fallback.** GitHub rejects self-approval, so
-> do NOT run `--approve` / `--request-changes`. The `gh pr comment` post from step 3 is
-> your complete deliverable; optionally add `gh pr review --comment` carrying the same
-> body. This happens when KbotSB is unavailable and the review runs under the
-> operator's ambient identity on an operator-authored PR — and it is the one case
-> where the PR gets no formal state.
+It must print `1`. `0` means nothing landed: post it. `2` or more means a duplicate:
+do not post again, and say so in the bead note.
 
 ## 4. Record the verdict on the tracking bead (backstop — ALWAYS)
 
@@ -505,12 +556,13 @@ Independently of the PR post, always record the verdict on {{issue}} so it survi
 even if the PR post fails:
 
 ```bash
-bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Followups: <bead ids, or none>. Identity: <ME login>."
+bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|REQUEST_CHANGES|NEEDS_DISCUSSION>. Followups: <bead ids, or none>. Identity: <ME login>. Posted as: <formal review|comment>."
 ```
 
-**Exit criteria:** The full review CONTENT is a comment on the PR (verified with
-`gh pr view {{pr_url}} --comments`), its FIRST LINE carries the verdict token and
-a `followups:` field, and the same verdict is recorded on {{issue}}."""
+**Exit criteria:** The full review CONTENT is on the PR exactly ONCE — as a formal
+review when `ME != PR_AUTHOR`, as a comment when `ME == PR_AUTHOR` — and the count
+check above printed `1`; its FIRST LINE carries the verdict token and a `followups:`
+field; and the same verdict is recorded on {{issue}}."""
 
 [[steps]]
 id = "file-followups"
@@ -566,7 +618,7 @@ only you can produce.
 
 ## Your deliverable was never the PR (sbx-gastown-vf98i)
 
-The verdict comment is the most VISIBLE thing you produce, so it is tempting
+The verdict post is the most VISIBLE thing you produce, so it is tempting
 to treat posting it as the definition of done. **It is an OUTPUT of your bead,
 not the completion of it.** Your bead's deliverables are: the verdict posted,
 AND your findings persisted, AND `gt exit` actually run — which releases your
@@ -587,7 +639,7 @@ output. Several polecats NARRATED an exit they never performed — one pane read
 self-report is not evidence. Actual state is.**
 
 **1. Findings persisted.** Your review reasoning lives nowhere else. The
-verdict comment says WHAT you decided; the bead is where WHY survives for the
+verdict post says WHAT you decided; the bead is where WHY survives for the
 next scout.
 ```bash
 bd show {{issue}} --notes
