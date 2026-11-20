@@ -197,7 +197,7 @@ func TestReviewPRSubmitStep_PostsOnce(t *testing.T) {
 		"`ME == PR_AUTHOR`",
 		"the COMMENT is your one post",
 		"--json reviews,comments", // the landed-once check counts both surfaces
-		"It must print `1`",
+		"`now` must be `N0+1`",
 	} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("submit-review step should contain %q", want)
@@ -210,6 +210,42 @@ func TestReviewPRSubmitStep_PostsOnce(t *testing.T) {
 	} {
 		if strings.Contains(desc, stale) {
 			t.Errorf("submit-review step still carries the double-post wording %q", stale)
+		}
+	}
+}
+
+// TestReviewPRSubmitStep_CountIsPerRound guards sbx-gastown-5l17vk: {{issue}} is
+// the source bead and every re-review round reuses it, so a count matching
+// "tracking {{issue}}" includes earlier rounds' posts. An absolute "must print 1"
+// reads a correct round-2 post as a duplicate and lets a refused round-2 review
+// go unposted. The check must be relative to a baseline taken before any post.
+func TestReviewPRSubmitStep_CountIsPerRound(t *testing.T) {
+	desc := findReviewPRSubmitStep(t).Description
+
+	baseline := strings.Index(desc, "> /tmp/gastown-review-{{issue}}.n0")
+	if baseline < 0 {
+		t.Fatal("submit-review step must write the pre-post baseline count to /tmp/gastown-review-{{issue}}.n0")
+	}
+	if post := reviewPostRe.FindStringIndex(desc); post == nil || post[0] < baseline {
+		t.Error("the baseline count must come BEFORE the first formal review post")
+	}
+	if post := strings.Index(desc, "gh pr comment {{pr_url}}"); post < baseline {
+		t.Error("the baseline count must come BEFORE the comment post")
+	}
+	for _, want := range []string{
+		`N0="$(cat /tmp/gastown-review-{{issue}}.n0)"`,
+		"never retake it after an attempt",
+		"must still show `N0`", // the refused-review fallback compares against the baseline
+		"Never compare `now`\nwith `1`",
+		"showed `now = N0+1`", // exit criteria
+	} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("submit-review step should contain %q", want)
+		}
+	}
+	for _, stale := range []string{"It must print `1`", "count\ncheck above printed `1`", "`2` or more means a duplicate"} {
+		if strings.Contains(desc, stale) {
+			t.Errorf("submit-review step still carries the absolute-count wording %q", stale)
 		}
 	}
 }

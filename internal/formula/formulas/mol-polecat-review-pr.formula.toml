@@ -504,6 +504,22 @@ nothing.
 
 ## 3. Post the review — ONE post, gated on authorship
 
+**First, take the baseline: count this bead's posts already on the PR, BEFORE you
+post.** `{{issue}}` is the source bead, and every re-review round on the PR reuses it,
+so the earlier rounds' posts match `tracking {{issue}}` too (bridge PR #262: two
+rounds, both `tracking sbx-gastown-cytwe3`). Every check below is relative to this
+baseline, `N0`. Write it to a file: shell state does not survive to your next tool call.
+
+```bash
+gh pr view {{pr_url}} --json reviews,comments --jq '[.reviews[], .comments[]] | map(select(.body | startswith("🤖 Gastown review") and contains("tracking {{issue}}"))) | length' > /tmp/gastown-review-{{issue}}.n0
+cat /tmp/gastown-review-{{issue}}.n0
+```
+
+It must print a number (`0` on a first review round). If it does not, retake it;
+never post without a baseline. Take it ONCE per round, before your first post
+attempt, and never retake it after an attempt: a baseline that includes your own
+post hides it.
+
 **Pick exactly ONE of the two branches below. Never run both.** GitHub blocks
 `--approve` / `--request-changes` in exactly one case: the reviewing account AUTHORED
 the PR. So the gate is `ME` vs `PR_AUTHOR` from step 2:
@@ -538,17 +554,22 @@ This is the one case where the PR gets no formal state.
 **If the formal review is refused** (GitHub returns an error and nothing posted),
 post the same body with the `gh pr comment` line instead, and say why in the bead
 note. That is still one post. Check that the first attempt really posted nothing
-before you fall back (the check below), or the PR gets the review twice.
+before you fall back (the check below must still show `N0`), or the PR gets the
+review twice.
 
-**Check it landed exactly once.** Reviews and comments are separate lists, so count
-across both:
+**Check it landed exactly once THIS round.** Reviews and comments are separate lists,
+so count across both, and compare with the baseline:
 
 ```bash
-gh pr view {{pr_url}} --json reviews,comments --jq '[.reviews[], .comments[]] | map(select(.body | startswith("🤖 Gastown review") and contains("tracking {{issue}}"))) | length'
+N0="$(cat /tmp/gastown-review-{{issue}}.n0)"
+N="$(gh pr view {{pr_url}} --json reviews,comments --jq '[.reviews[], .comments[]] | map(select(.body | startswith("🤖 Gastown review") and contains("tracking {{issue}}"))) | length')"
+echo "baseline N0=$N0  now=$N  (one post this round means now = N0+1 = $((N0 + 1)))"
 ```
 
-It must print `1`. `0` means nothing landed: post it. `2` or more means a duplicate:
-do not post again, and say so in the bead note.
+`now` must be `N0+1`: your round's post landed once. `now = N0` means nothing
+landed: post it (this is the refused-review fallback's check). `N0+2` or more means
+a duplicate: do not post again, and say so in the bead note. Never compare `now`
+with `1`: from round 2 onward, the earlier rounds' posts are in the count.
 
 ## 4. Record the verdict on the tracking bead (backstop — ALWAYS)
 
@@ -561,7 +582,7 @@ bd update {{issue}} --notes "Review posted to PR {{pr_url}}. Verdict: <APPROVE|R
 
 **Exit criteria:** The full review CONTENT is on the PR exactly ONCE — as a formal
 review when `ME != PR_AUTHOR`, as a comment when `ME == PR_AUTHOR` — and the count
-check above printed `1`; its FIRST LINE carries the verdict token and a `followups:`
+check above showed `now = N0+1`; its FIRST LINE carries the verdict token and a `followups:`
 field; and the same verdict is recorded on {{issue}}."""
 
 [[steps]]
